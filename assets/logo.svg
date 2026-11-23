@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
+  <!-- hand-drawn style logo: photo stack with mountain, sun and a wobbly cloud -->
+  <rect width="256" height="256" fill="#faf6ec"/>
+  <g fill="none" stroke="#2b2620" stroke-width="5" stroke-linecap="round" stroke-linejoin="round">
+    <!-- back photo (tilted, wobbly rect) -->
+    <path d="M52 84 C51 82 53 78 56 77 L172 62 C176 61 180 64 181 68 L190 168 C190 172 188 175 184 176 L68 191 C64 192 60 189 60 185 Z"
+          fill="#fdf2df" stroke="#8b7d6b" stroke-width="4"/>
+    <!-- front photo -->
+    <path d="M64 108 C64 104 67 101 71 101 L196 96 C200 96 204 99 204 103 L212 196 C212 200 209 204 205 204 L78 210 C74 210 70 207 70 203 Z"
+          fill="#ffffff"/>
+    <!-- mountain inside front photo -->
+    <path d="M84 190 C92 176 104 156 114 142 C118 136 122 136 126 142 L146 168 C150 174 154 174 160 168 L186 138"
+          stroke="#3b6ea5"/>
+    <!-- little pine -->
+    <path d="M96 192 L104 176 L110 192 Z" stroke="#4a7c59" fill="#4a7c59"/>
+    <!-- sun -->
+    <circle cx="176" cy="122" r="12" stroke="#d94f30"/>
+    <path d="M176 104 L176 98 M176 146 L176 152 M158 122 L152 122 M194 122 L200 122 M163 109 L159 105 M189 135 L193 139 M189 109 L193 105 M163 135 L159 139"
+          stroke="#d94f30" stroke-width="4"/>
+    <!-- cloud floating above -->
+    <path d="M96 52 C90 52 86 46 92 41 C94 32 106 30 111 37 C116 30 130 31 132 39 C140 38 143 46 137 50 C138 54 133 57 128 55 C124 60 114 60 111 55 C106 58 98 57 96 52 Z"
+          fill="#ffffff" stroke="#2b2620"/>
+  </g>
+  <!-- sketchy scribble underline -->
+  <path d="M70 226 C100 222 130 228 158 224 C180 221 196 226 196 224"
+        fill="none" stroke="#d94f30" stroke-width="4" stroke-linecap="round"/>
+</svg>

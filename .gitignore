@@ -1,0 +1,12 @@
+/target/
+*.part
+*.tmp
+.DS_Store
+*.log
+local/
+.env
+*.key
+*.pem
+/.worktrees/
+/.superpowers/
+/AUTONOMOUS/
