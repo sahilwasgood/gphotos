@@ -2894,6 +2894,20 @@ impl eframe::App for App {
                     // are staged for confirmation and never written here.
                     let existing = library::load_registry();
                     let (mut rows, staged) = merge_accounts(&existing, &discovered);
+                    // keep the currently signed-in identity visible even with
+                    // no registry row and no live discovery result
+                    if let Some((jar, email)) = self.selected.clone() {
+                        if !rows.iter().any(|r| r.jar == jar && r.email == email) {
+                            rows.push(library::AccountRecord {
+                                jar,
+                                email,
+                                name: String::new(),
+                                hidden: false,
+                                last_seen: 0,
+                                last_ok: 0,
+                            });
+                        }
+                    }
                     rows.extend(staged);
                     rows.sort_by(|a, b| a.jar.cmp(&b.jar).then(a.email.cmp(&b.email)));
                     if self.add_jar.is_empty() {
