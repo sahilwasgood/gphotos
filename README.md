@@ -39,6 +39,24 @@ On first run, use the in-app sign-in flow, then confirm in the browser. The app 
 existing browser session (Brave/Chrome/Firefox cookie sources via the helper scripts described
 below). No credentials are ever written into the repository.
 
+## Deep links
+
+Pass a link as the first argument to open it on launch:
+
+```bash
+./target/release/gphotos-app gphotos://photo/AF1QipABC123
+./target/release/gphotos-app gphotos://album/AAK-1234567890
+./target/release/gphotos-app /path/to/shared.gphotoslink
+```
+
+A `.gphotoslink` is a plain text file whose first non-empty, non-comment line is
+a `gphotos://photo/…` / `gphotos://album/…` URL or a `https://photos.google.com/photo/…`
+/ `/album/…` share URL. Keys are percent-decoded. Add `?account=<email>` to a
+`gphotos://` URL to select the profile that created the link (it must already be
+in the account list); without it the currently selected account is used. Short
+`photos.app.goo.gl` links cannot be resolved offline and are rejected, and a
+malformed or unknown link shows an error instead of opening a blank viewer.
+
 ## Configuration
 
 All paths are portable and can be overridden:

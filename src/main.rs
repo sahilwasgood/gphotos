@@ -820,6 +820,8 @@ struct App {
     fullscreen: bool,
     restore_window: bool,
     cache_sizes: Option<(u64, u64, u64)>,
+    // launch deeplink, applied once the library is ready
+    pending_deeplink: Option<(Kind, String)>,
 }
 
 fn read_cfg(name: &str) -> Vec<(String, String)> {
@@ -911,7 +913,11 @@ impl App {
 }
 
 impl App {
-    fn new(cc: &eframe::CreationContext<'_>) -> Self {
+    fn new(
+        cc: &eframe::CreationContext<'_>,
+        deeplink: Option<(Kind, String)>,
+        bad_link: bool,
+    ) -> Self {
         set_fonts(&cc.egui_ctx);
         set_theme(&cc.egui_ctx);
 
@@ -1122,8 +1128,25 @@ impl App {
             scan_started: Arc::new(AtomicBool::new(false)),
             account_epoch: Arc::new(AtomicU64::new(0)),
             last_nav: Instant::now(),
+            pending_deeplink: deeplink.clone(),
         };
         app.load_settings();
+        // A link remembers who created it: pick that profile before the boot
+        // capture below, so the target is opened under the right account.
+        if let Some(email) = deeplink.as_ref().and_then(|(k, _)| k.account()) {
+            if let Some(acc) = library::load_registry().into_iter().find(|a| a.email == email) {
+                app.selected = Some((acc.jar.clone(), acc.email.clone()));
+                set_setting("selected_jar", &acc.jar);
+                set_setting("selected_email", &acc.email);
+            }
+        }
+        // A bad link must say so; never leave a blank viewer behind it.
+        if bad_link {
+            let _ = app.tx.send(Msg::Toast {
+                msg: "unsupported link — use gphotos://photo/<key>, gphotos://album/<key>, or a .gphotoslink file".into(),
+                is_error: true,
+            });
+        }
         // on boot: open straight into the photos grid (optimistic); only fall
         // back to the sign-in page when there is genuinely no session. a real
         // session has oPEP7c = the account email; the sign-in shell does not.
@@ -2829,7 +2852,18 @@ impl eframe::App for App {
                 Msg::SessionReady(ok) => {
                     *self.page.lock().unwrap() = if ok { "photos".into() } else { "signin".into() };
                     if ok {
-                        self.fetch_lib("recent".into());
+                        // an album link owns the first grid fetch — the usual
+                        // "recent" load would otherwise overwrite it
+                        let album_link = match self.pending_deeplink.as_ref() {
+                            Some((Kind::Album(_), key)) => Some(key.clone()),
+                            _ => None,
+                        };
+                        if let Some(key) = album_link {
+                            self.pending_deeplink = None;
+                            self.fetch_lib(format!("album:{}", key));
+                        } else {
+                            self.fetch_lib("recent".into());
+                        }
                         self.fetch_quota(); // storage shows without a click
                         // one full measurement per launch, after sign-in settles
                         if std::env::var("GPHOTOS_HOGS").is_err() {
@@ -2979,6 +3013,18 @@ impl eframe::App for App {
                 if let Some(it) = items.iter().find(|i| i.is_video == want_video) {
                     self.open_viewer(&it.media_key);
                 }
+            }
+        }
+        // launch deeplink: a photo opens as soon as the boot library fetch has
+        // that key (no new RPC for one item — the GPHOTOS_OPEN hook does the
+        // same). Albums are launched from SessionReady so the first fetch is
+        // the album, not the default timeline.
+        if let Some((Kind::Photo(_), key)) = self.pending_deeplink.clone() {
+            // drop the lock before open_viewer, which locks lib_items again
+            let known = self.lib_items.lock().unwrap().iter().any(|i| i.media_key == key);
+            if known {
+                self.open_viewer(&key);
+                self.pending_deeplink = None;
             }
         }
         // screenshot hook: open the measured page once the session is ready
@@ -11694,6 +11740,105 @@ fn now_stamp() -> String {
         .unwrap_or_default()
 }
 
+// A launch link targets one photo or one album. The optional account is the
+// email stored in the link by whoever created it, so the right profile can be
+// selected before the target is opened.
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum Kind {
+    Photo(Option<String>),
+    Album(Option<String>),
+}
+
+impl Kind {
+    fn account(&self) -> Option<&str> {
+        match self {
+            Kind::Photo(a) | Kind::Album(a) => a.as_deref(),
+        }
+    }
+}
+
+fn hex_val(c: u8) -> Option<u8> {
+    match c {
+        b'0'..=b'9' => Some(c - b'0'),
+        b'a'..=b'f' => Some(c - b'a' + 10),
+        b'A'..=b'F' => Some(c - b'A' + 10),
+        _ => None,
+    }
+}
+
+// Percent-decode without a dependency; keys and account emails are short ASCII.
+fn url_decode(s: &str) -> String {
+    let b = s.as_bytes();
+    let mut out = Vec::with_capacity(b.len());
+    let mut i = 0;
+    while i < b.len() {
+        if i + 2 < b.len() && b[i] == b'%' {
+            if let (Some(hi), Some(lo)) = (hex_val(b[i + 1]), hex_val(b[i + 2])) {
+                out.push(hi << 4 | lo);
+                i += 3;
+                continue;
+            }
+        }
+        out.push(b[i]);
+        i += 1;
+    }
+    String::from_utf8_lossy(&out).into_owned()
+}
+
+fn deeplink_target(path: &str) -> Option<(Kind, String)> {
+    let (build, rest) = if let Some(r) = path.strip_prefix("photo/") {
+        (Kind::Photo as fn(Option<String>) -> Kind, r)
+    } else if let Some(r) = path.strip_prefix("album/") {
+        (Kind::Album as fn(Option<String>) -> Kind, r)
+    } else {
+        return None;
+    };
+    let (target, query) = rest.split_once('?').unwrap_or((rest, ""));
+    let key = url_decode(target.split(|c| c == '/' || c == '#').next().unwrap_or(""));
+    if key.is_empty() {
+        return None;
+    }
+    let account = query.split('&').find_map(|p| {
+        let (k, v) = p.split_once('=')?;
+        if k == "account" || k == "email" {
+            let v = url_decode(v);
+            if !v.is_empty() {
+                return Some(v);
+            }
+        }
+        None
+    });
+    Some((build(account), key))
+}
+
+// Pure parser: see the deeplink_tests module for every accepted form.
+fn parse_deeplink(input: &str) -> Option<(Kind, String)> {
+    let s = input.trim();
+    if s.is_empty() {
+        return None;
+    }
+    if s.to_lowercase().ends_with(".gphotoslink") {
+        let text = std::fs::read_to_string(s).ok()?;
+        let line = text
+            .lines()
+            .map(str::trim)
+            .find(|l| !l.is_empty() && !l.starts_with('#'))?;
+        return parse_deeplink(line);
+    }
+    if let Some(rest) = s.strip_prefix("gphotos://") {
+        return deeplink_target(rest);
+    }
+    // a web share URL carries the key in its path; short goo.gl links cannot
+    // be resolved offline, so they fall through to None (honest error toast)
+    if let Some(rest) = s
+        .strip_prefix("https://photos.google.com/")
+        .or_else(|| s.strip_prefix("http://photos.google.com/"))
+    {
+        return deeplink_target(rest);
+    }
+    None
+}
+
 
 
 fn main() -> eframe::Result<()> {
@@ -12068,6 +12213,14 @@ fn main() -> eframe::Result<()> {
         let live_fail = selftest();
         std::process::exit(if pure_fail == 0 && live_fail == 0 { 0 } else { 1 });
     }
+    // A deeplink is just another argv: a gphotos:// URL or a .gphotoslink path.
+    // Parsing here keeps the GUI free of argv handling; the bad-link toast is
+    // carried into App so it shows once the window is up.
+    let link_arg = argv.iter().skip(1).find(|a| {
+        a.starts_with("gphotos://") || a.to_lowercase().ends_with(".gphotoslink")
+    }).cloned();
+    let deeplink = link_arg.as_deref().and_then(parse_deeplink);
+    let bad_link = link_arg.is_some() && deeplink.is_none();
     let opts = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([1120.0, 760.0])
@@ -12075,7 +12228,11 @@ fn main() -> eframe::Result<()> {
             .with_icon(window_icon().unwrap_or(egui::IconData::default())),
         ..Default::default()
     };
-    eframe::run_native("Google Photos", opts, Box::new(|cc| Ok(Box::new(App::new(cc)))))
+    eframe::run_native(
+        "Google Photos",
+        opts,
+        Box::new(move |cc| Ok(Box::new(App::new(cc, deeplink, bad_link)))),
+    )
 }
 
 // A/V clock byte accounting: the sink's callback and this test share the exact
@@ -12531,5 +12688,82 @@ mod portability_tests {
             let on = local_uploader_control_enabled_on(os);
             assert_eq!(local_uploader_notice(on).is_empty(), on);
         }
+    }
+}
+
+#[cfg(test)]
+mod deeplink_tests {
+    use super::*;
+
+    // a .gphotoslink is just a text file; no network, no RPC, no secrets
+    fn link_file(name: &str, body: &str) -> PathBuf {
+        let p = std::env::temp_dir().join(format!(
+            "gphotos-link-{}-{}.gphotoslink",
+            std::process::id(),
+            name
+        ));
+        std::fs::write(&p, body).expect("write temp .gphotoslink");
+        p
+    }
+
+    #[test]
+    fn photo_url_yields_photo_key() {
+        assert_eq!(
+            parse_deeplink("gphotos://photo/AF1QipABC123"),
+            Some((Kind::Photo(None), "AF1QipABC123".into()))
+        );
+    }
+
+    #[test]
+    fn album_url_yields_album_key() {
+        assert_eq!(
+            parse_deeplink("gphotos://album/AAK-1234567890"),
+            Some((Kind::Album(None), "AAK-1234567890".into()))
+        );
+    }
+
+    #[test]
+    fn link_file_with_gphotos_url_opens_it() {
+        let p = link_file("gphotos", "# shared from the desktop app\ngphotos://photo/FromFileKey\n");
+        let got = parse_deeplink(&p.to_string_lossy());
+        let _ = std::fs::remove_file(&p);
+        assert_eq!(got, Some((Kind::Photo(None), "FromFileKey".into())));
+    }
+
+    #[test]
+    fn link_file_with_share_url_opens_it() {
+        let p = link_file("share", "https://photos.google.com/photo/SharePhotoKey?key=ignored\n");
+        let got = parse_deeplink(&p.to_string_lossy());
+        let _ = std::fs::remove_file(&p);
+        assert_eq!(got, Some((Kind::Photo(None), "SharePhotoKey".into())));
+    }
+
+    #[test]
+    fn malformed_and_unknown_schemes_are_rejected() {
+        for bad in [
+            "mailto:someone@example.com",
+            "gphotos://video/AF1Qip",
+            "gphotos://photo/",
+            "gphotos://album/",
+            "https://photos.app.goo.gl/opaqueToken",
+            "   ",
+        ] {
+            assert_eq!(parse_deeplink(bad), None, "must reject {bad}");
+        }
+    }
+
+    #[test]
+    fn keys_and_account_are_url_decoded() {
+        assert_eq!(
+            parse_deeplink("gphotos://photo/AF1%2FQip%20x?account=someone%40example.com&x=1"),
+            Some((
+                Kind::Photo(Some("someone@example.com".into())),
+                "AF1/Qip x".into()
+            ))
+        );
+        assert_eq!(
+            parse_deeplink("gphotos://album/Album%2BKey"),
+            Some((Kind::Album(None), "Album+Key".into()))
+        );
     }
 }
