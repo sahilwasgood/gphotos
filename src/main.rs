@@ -9273,10 +9273,24 @@ fn draw_skeleton_cell(ui: &mut egui::Ui, size: f32) {
         // show the saved accounts immediately (so log-out/switch buttons work
         // even when Google's discovery endpoint is unavailable), then replace
         // the list with live discovery when it lands
-        let known: Vec<library::AccountRecord> = library::load_registry()
+        let mut known: Vec<library::AccountRecord> = library::load_registry()
             .into_iter()
             .filter(|r| !r.hidden)
             .collect();
+        // a legacy-selected account may have no registry row — include the
+        // current identity so "log out" is always reachable for it
+        if let Some((jar, email)) = self.selected.clone() {
+            if !known.iter().any(|r| r.jar == jar && r.email == email) {
+                known.push(library::AccountRecord {
+                    jar,
+                    email,
+                    name: String::new(),
+                    hidden: false,
+                    last_seen: 0,
+                    last_ok: 0,
+                });
+            }
+        }
         if !known.is_empty() {
             self.switch_list.lock().unwrap().clone_from(&known);
         }
