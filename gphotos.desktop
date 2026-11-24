@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=gphotos
+GenericName=Google Photos Desktop Client
+Comment=Browse your Google Photos library on the desktop
+Exec=gphotos
+Icon=gphotos
+Terminal=false
+Categories=Graphics;Photography;Viewer;
+MimeType=x-scheme-handler/gphotos;

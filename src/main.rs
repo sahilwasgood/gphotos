@@ -597,16 +597,32 @@ fn jar_browser_argv(jar: &str, url: &str) -> Option<(String, Vec<String>)> {
     let browser = jar.split('|').next().unwrap_or("");
     let profile = jar.split('|').nth(1).unwrap_or("");
     let profile = profile.rsplit('/').next().unwrap_or("");
-    let exe = match browser {
-        "firefox" => "firefox",
-        "chromium" => "chromium",
-        "google-chrome" | "chrome" => "google-chrome",
-        "Brave-Browser" | "Brave-Origin" | "brave" => "brave-browser",
+    // Real executable names per OS — the Linux-only list used to make the
+    // "add account" profile picker a no-op on Windows and macOS.
+    let exe = match (std::env::consts::OS, browser) {
+        ("windows", "firefox") => "firefox.exe",
+        ("windows", "chromium") => "chrome.exe",
+        ("windows", "google-chrome" | "chrome") => "chrome.exe",
+        ("windows", "Brave-Browser" | "Brave-Origin" | "brave") => "brave.exe",
+        ("macos", "firefox") => "Firefox",
+        ("macos", "chromium") => "Chromium",
+        ("macos", "google-chrome" | "chrome") => "Google Chrome",
+        ("macos", "Brave-Browser" | "Brave-Origin" | "brave") => "Brave Browser",
+        (_, "firefox") => "firefox",
+        (_, "chromium") => "chromium",
+        (_, "google-chrome" | "chrome") => "google-chrome",
+        (_, "Brave-Browser" | "Brave-Origin" | "brave") => "brave-browser",
         _ => return None,
     };
     let mut args = Vec::new();
-    if !profile.is_empty() && exe != "firefox" {
-        args.push(format!("--profile-directory={profile}"));
+    // Firefox needs -P <profile>; Chromium-family uses --profile-directory.
+    if !profile.is_empty() {
+        if browser == "firefox" {
+            args.push("-P".into());
+            args.push(profile.to_string());
+        } else {
+            args.push(format!("--profile-directory={profile}"));
+        }
     }
     args.push(url.to_string());
     Some((exe.to_string(), args))
@@ -614,7 +630,6 @@ fn jar_browser_argv(jar: &str, url: &str) -> Option<(String, Vec<String>)> {
 
 // Open the sign-in page in the profile discovery will inspect.
 fn open_jar_url(jar: &str, url: &str) {
-    #[cfg(target_os = "linux")]
     if let Some((exe, args)) = jar_browser_argv(jar, url) {
         if Command::new(&exe).args(&args).spawn().is_ok() {
             return;
@@ -1424,7 +1439,18 @@ impl App {
     // local cookie stores until the oauth_token cookie appears — no DevTools
     fn signin_auto(&self) {
         const URL: &str = "https://accounts.google.com/embedded/setup/v2/android";
-        open_url(URL);
+        // Open the real browser profile discovery reads. Fall back to the OS
+        // default only when no profile is known yet.
+        let jar = self
+            .selected
+            .as_ref()
+            .map(|(j, _)| j.clone())
+            .unwrap_or_default();
+        if jar.is_empty() {
+            open_url(URL);
+        } else {
+            open_jar_url(&jar, URL);
+        }
 
         let sel = self.selected.clone();
         self.spawn_action(move |tx| {
@@ -6854,7 +6880,10 @@ fn draw_skeleton_cell(ui: &mut egui::Ui, size: f32) {
         let epoch_sh = self.account_epoch.clone();
         let epoch = epoch_sh.load(Ordering::Relaxed);
         let tx = self.tx.clone();
+        let grid_items_sh = self.lib_items.clone();
         thread::spawn(move || {
+            // snapshot whether a grid is already visible when the scan starts
+            let grid_empty_sh = Arc::new(Mutex::new(grid_items_sh.lock().unwrap().is_empty()));
             let Some(s) = sess_sh.lock().unwrap().clone().or_else(|| capture_selected(&sel)) else {
                 tx.send(Msg::Toast {
                     msg: "no photos.google.com session — sign in first".into(),
@@ -6907,7 +6936,11 @@ fn draw_skeleton_cell(ui: &mut egui::Ui, size: f32) {
                 .map(|r| r.item.clone())
                 .collect();
             timeline.sort_by(|a, b| b.ts.cmp(&a.ts));
-            if !to_hogs {
+            // The scan is for storage statistics, not a grid refresh. Publishing
+            // its full-timeline result here makes the visible grid flicker
+            // ("recent: loading" -> items -> loading) on every launch, because
+            // it races the normal paged fetch. Only use it when nothing loaded.
+            if !to_hogs && grid_empty_sh.lock().unwrap().clone() {
                 tx.send(Msg::Lib(timeline.clone(), "recent".into(), None)).ok();
             }
             tx.send(Msg::AllItems(sorted.clone())).ok();
@@ -12280,12 +12313,12 @@ fn main() -> eframe::Result<()> {
     let opts = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([1120.0, 760.0])
-            .with_title("Google Photos")
+            .with_title("gphotos — Google Photos Desktop Client")
             .with_icon(window_icon().unwrap_or(egui::IconData::default())),
         ..Default::default()
     };
     eframe::run_native(
-        "Google Photos",
+        "gphotos — Google Photos Desktop Client",
         opts,
         Box::new(move |cc| Ok(Box::new(App::new(cc, deeplink, bad_link)))),
     )
@@ -12461,10 +12494,10 @@ mod accounts_tests {
                 "--profile-directory=Default".into(), "https://signin".into()
             ]))
         );
-        // legacy two-field jars still work; firefox has no profile-directory
+        // Firefox selects its profile with -P (no --profile-directory)
         assert_eq!(
             jar_browser_argv("firefox|abc.default|cookies.sqlite", "https://signin"),
-            Some(("firefox".into(), vec!["https://signin".into()]))
+            Some(("firefox".into(), vec!["-P".into(), "abc.default".into(), "https://signin".into()]))
         );
         // non-filesystem labels fall back to the OS URL helper
         assert_eq!(jar_browser_argv("imported|Default", "https://signin"), None);
