@@ -295,6 +295,19 @@ fn parse_list_accounts(json: &str) -> Vec<(String, String, bool)> {
 // reorders authuser indices, so the ListAccounts row position is only the first
 // probe; each email is emitted only when that jar's photos page confirms its
 // oPEP7c identity, with a full 0..8 scan as the fallback.
+// Old installs stored a short jar label ("Brave-Origin", "Default") before jar
+// ids became `browser|profile|db`. Resolve one to the full id so a migrated
+// selection can still find its session.
+pub fn resolve_legacy_jar(short: &str) -> Option<String> {
+    if short.contains('|') {
+        return Some(short.to_string());
+    }
+    collect_cookie_sources()
+        .into_iter()
+        .find(|(id, _)| id.split('|').any(|part| part == short || part.starts_with(short)))
+        .map(|(id, _)| id)
+}
+
 pub fn discover_accounts() -> Vec<AccountRecord> {
     let mut out: Vec<AccountRecord> = vec![];
     for (jar, cookie) in collect_cookie_sources() {
@@ -488,7 +501,17 @@ impl Session {
     }
 
     fn load_cached(jar: &str, email: &str) -> Option<Session> {
-        let s = Self::session_from_value(Self::read_sessions().get(&session_key(jar, email))?)?;
+        let map = Self::read_sessions();
+        let value = map.get(&session_key(jar, email)).or_else(|| {
+            // pre-rename installs cached sessions under a short jar label
+            // ("Brave-Origin|email"). Match that legacy key by email so an
+            // upgraded app keeps its signed-in session.
+            let legacy = format!("|{}", email);
+            map.iter()
+                .find(|(k, _)| k.ends_with(&legacy) && !k.contains("||"))
+                .map(|(_, v)| v)
+        })?;
+        let s = Self::session_from_value(value)?;
         let html = http("GET", &home_url(0), &s.cookie, "", "");
         revalidate_cached(Some(s), html)
     }

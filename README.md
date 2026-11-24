@@ -1,4 +1,4 @@
-# gphotos-app
+# gphotos
 
 A native desktop client for Google Photos, written in Rust with [egui](https://github.com/emilk/egui).
 It talks to the same private web endpoints the browser app uses, so media stays in your Google
@@ -30,7 +30,7 @@ first run.
 
 ```bash
 git clone https://github.com/sahilwasgood/gphotos.git
-cd gphotos-app
+cd gphotos
 cargo build --release
 ./target/release/gphotos-app
 ```

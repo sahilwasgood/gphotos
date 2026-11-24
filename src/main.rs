@@ -11094,18 +11094,37 @@ fn load_selected_identity() -> Option<(String, String)> {
     let jar = setting("selected_jar", "");
     let email = setting("selected_email", "");
     if !jar.is_empty() && !email.is_empty() {
-        return Some((jar, email));
+        // a pre-rename install may have stored a short jar label; upgrade it
+        // to the full id before any capture tries to look the session up
+        let full = library::resolve_legacy_jar(&jar).unwrap_or_else(|| jar.clone());
+        if full != jar {
+            set_setting("selected_jar", &full);
+        }
+        return Some((full, email));
     }
-    if setting("selected_migrated", "0") == "1" {
-        return None;
-    }
-    set_setting("selected_migrated", "1");
+    // No stored selection: try the legacy authuser slot first, and if that
+    // fails (offline first run, or a session that expired before migration),
+    // discover live accounts so an already-signed-in machine still opens the
+    // grid instead of being stuck on the sign-in page forever.
     let n = setting("authuser", "0").parse::<u32>().unwrap_or(0);
-    let s = library::Session::capture_with(n)?;
-    let sel = (s.jar, s.email);
-    set_setting("selected_jar", &sel.0);
-    set_setting("selected_email", &sel.1);
-    Some(sel)
+    // A legacy capture can still yield (jar,email) even when ListAccounts
+    // discovery returns nothing (e.g. the endpoint changed or is rate-limited).
+    // Try it on EVERY launch with no selection, not just the first one — the
+    // migration sentinel must never strand a signed-in machine on the sign-in
+    // page after a transient failure.
+    let from_legacy = library::Session::capture_with(n)
+        .map(|s| (library::resolve_legacy_jar(&s.jar).unwrap_or(s.jar), s.email));
+    if let Some(sel) = from_legacy.or_else(|| {
+        library::discover_accounts()
+            .into_iter()
+            .find(|a| !a.hidden && !a.email.is_empty())
+            .map(|a| (a.jar, a.email))
+    }) {
+        set_setting("selected_jar", &sel.0);
+        set_setting("selected_email", &sel.1);
+        return Some(sel);
+    }
+    None
 }
 
 // Every worker captures through the selected identity, never the old 0..4 slot.
