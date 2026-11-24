@@ -169,6 +169,9 @@ enum Msg {
     Thumb(String, egui::ColorImage),
     RefreshLib,
     SessionReady(bool),
+    // a successful browser sign-in must also reconnect the Photos session,
+    // not only store the sync-robot credential
+    SignedIn,
     MoreLib(Vec<library::MediaItem>, String, Option<String>),
     Viewer(String, egui::ColorImage),
     ViewerInfo(library::BulkInfo),
@@ -1453,6 +1456,7 @@ impl App {
                         is_error: false,
                     });
                     let _ = tx.send(Msg::Token(tok));
+                    let _ = tx.send(Msg::SignedIn);
                     return;
                 }
                 std::thread::sleep(Duration::from_secs(3));
@@ -2766,6 +2770,20 @@ impl eframe::App for App {
                     self.save_dirs(t);
                 }
                 Msg::Token(t) => self.add_creds(t),
+                Msg::SignedIn => {
+                    // clear the logout flag first, then derive the (jar,email)
+                    // from the browser session that just completed sign-in
+                    set_setting("logged_out", "0");
+                    let sel = load_selected_identity();
+                    if let Some(sel) = sel {
+                        self.do_switch(sel);
+                    } else {
+                        let _ = self.tx.send(Msg::Toast {
+                            msg: "signed in, but no Google Photos session was found yet — retry in a moment".into(),
+                            is_error: true,
+                        });
+                    }
+                }
                 Msg::Lib(items, view, next_token) => {
                     // the full-timeline measurement means "everything loaded"
                     let full = items.len() > 1000;
