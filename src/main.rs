@@ -1424,6 +1424,7 @@ impl App {
                     }
                 }
                 if !tok.is_empty() {
+                    set_setting("logged_out", "0");
                     let _ = tx.send(Msg::Toast {
                         msg: "token captured — connecting your account…".into(),
                         is_error: false,
@@ -9274,6 +9275,35 @@ fn draw_skeleton_cell(ui: &mut egui::Ui, size: f32) {
         self.pending_adds.retain(|p| p.jar != jar || p.email != email);
     }
 
+    // Log out one account: forget its cached session and, if it is active,
+    // leave the signed-in page. Browser profile cookies are deliberately left
+    // alone — the user logs out of Google in the browser themselves.
+    fn logout_one(&mut self, jar: &str, email: &str) {
+        library::forget_session(jar, email);
+        if self.selected.as_ref() == Some(&(jar.to_string(), email.to_string())) {
+            self.finish_logout();
+        }
+    }
+
+    fn logout_all(&mut self) {
+        library::forget_all_sessions();
+        self.finish_logout();
+    }
+
+    fn finish_logout(&mut self) {
+        set_setting("logged_out", "1");
+        set_setting("selected_jar", "");
+        set_setting("selected_email", "");
+        self.selected = None;
+        *self.lib_session.lock().unwrap() = None;
+        self.account_epoch.fetch_add(1, Ordering::Relaxed);
+        self.reset_for_account();
+        *self.page.lock().unwrap() = "signin".to_string();
+        self.switch_open = false;
+        self.pending_adds.clear();
+        self.add_poll = None;
+    }
+
     fn switch_ui(&mut self, ctx: &egui::Context) {
         let list = self.switch_list.lock().unwrap().clone();
         let cur = self.selected.clone();
@@ -9298,6 +9328,8 @@ fn draw_skeleton_cell(ui: &mut egui::Ui, size: f32) {
                 let mut add: Option<usize> = None;
                 let mut ignore: Option<usize> = None;
                 let mut restore: Option<AccountKey> = None;
+                let mut logout_one: Option<AccountKey> = None;
+                let mut logout_all = false;
                 let mut shown = 0;
                 for a in &list {
                     let key = (a.jar.clone(), a.email.clone());
@@ -9327,6 +9359,9 @@ fn draw_skeleton_cell(ui: &mut egui::Ui, size: f32) {
                         }
                         if ui.button(egui::RichText::new("remove").color(RED)).clicked() {
                             remove = Some(key.clone());
+                        }
+                        if ui.button(egui::RichText::new("log out").color(RED)).clicked() {
+                            logout_one = Some(key.clone());
                         }
                     });
                 }
@@ -9379,6 +9414,12 @@ fn draw_skeleton_cell(ui: &mut egui::Ui, size: f32) {
                         self.remove_account(&jar, &email);
                     }
                 }
+                if let Some((jar, email)) = logout_one {
+                    self.logout_one(&jar, &email);
+                }
+                if logout_all {
+                    self.logout_all();
+                }
                 // hidden accounts must be recoverable, otherwise a user can
                 // hide every account and lock themselves out of switching
                 let hidden_now: Vec<AccountKey> = self.hidden.iter().cloned().collect();
@@ -9399,6 +9440,9 @@ fn draw_skeleton_cell(ui: &mut egui::Ui, size: f32) {
                     ui.label("none found yet — checking…");
                 }
                 ui.separator();
+                if ui.button(egui::RichText::new("log out of ALL accounts").color(RED)).clicked() {
+                    logout_all = true;
+                }
                 ui.horizontal(|ui| {
                     ui.label(egui::RichText::new("add to:").size(11.0).color(INK_SOFT));
                     if jars.is_empty() {
@@ -9518,6 +9562,7 @@ fn draw_skeleton_cell(ui: &mut egui::Ui, size: f32) {
     }
 
     fn do_switch(&mut self, sel: (String, String)) {
+        set_setting("logged_out", "0");
         // bump first: in-flight workers from the previous identity must not
         // inject their data into the newly selected account
         self.account_epoch.fetch_add(1, Ordering::Relaxed);
@@ -11091,6 +11136,10 @@ fn merge_accounts(
 // The sentinel is written BEFORE the blocking probe so an offline/failed first
 // run does not pay that cost on every subsequent launch.
 fn load_selected_identity() -> Option<(String, String)> {
+    // an explicit logout must not be undone by re-detecting browser cookies
+    if setting("logged_out", "0") == "1" {
+        return None;
+    }
     let jar = setting("selected_jar", "");
     let email = setting("selected_email", "");
     if !jar.is_empty() && !email.is_empty() {

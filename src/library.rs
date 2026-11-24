@@ -308,6 +308,29 @@ pub fn resolve_legacy_jar(short: &str) -> Option<String> {
         .map(|(id, _)| id)
 }
 
+// Forget cached sessions: "log out" must require a fresh sign-in, not just
+// re-detect the browser cookies on the next launch.
+pub fn forget_session(jar: &str, email: &str) -> bool {
+    let mut map = Session::read_sessions();
+    let exact = map.remove(&session_key(jar, email)).is_some();
+    let legacy = format!("|{}", email);
+    let legacy_removed = if map.keys().any(|k| k.ends_with(&legacy)) {
+        map.retain(|k, _| !k.ends_with(&legacy));
+        true
+    } else {
+        false
+    };
+    if exact || legacy_removed {
+        write_secret(&sessions_path(), &Value::Object(map).to_string())
+    } else {
+        true // already logged out
+    }
+}
+
+pub fn forget_all_sessions() -> bool {
+    write_secret(&sessions_path(), "{}")
+}
+
 pub fn discover_accounts() -> Vec<AccountRecord> {
     let mut out: Vec<AccountRecord> = vec![];
     for (jar, cookie) in collect_cookie_sources() {
