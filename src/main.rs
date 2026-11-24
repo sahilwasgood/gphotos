@@ -11512,7 +11512,7 @@ fn window_icon() -> Option<egui::IconData> {
 
 
 // ---- self test -------------------------------------------------------------
-// `gphotos-app --selftest` exercises every action the viewer buttons use on the
+// `gphotos --selftest` exercises every action the viewer buttons use on the
 // newest items (today's screenshots), checking the server agrees each time
 // live mutation checks read back through Google's listings, which are
 // eventually consistent. Poll briefly instead of failing on the first miss.

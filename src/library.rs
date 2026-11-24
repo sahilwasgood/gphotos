@@ -905,7 +905,7 @@ fn http(method: &str, url: &str, cookie: &str, body: &str, origin: &str) -> Opti
         "url = {}\nheader = {}\nheader = {}\n",
         curl_quote(url),
         curl_quote(&format!("Cookie: {}", cookie)),
-        curl_quote("User-Agent: Mozilla/5.0 (X11; Linux x86_64) gphotos-app"),
+        curl_quote("User-Agent: Mozilla/5.0 (X11; Linux x86_64) gphotos"),
     );
     if !origin.is_empty() {
         cfg.push_str(&format!("header = {}\n", curl_quote(&format!("Origin: {}", origin))));
