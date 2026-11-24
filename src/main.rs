@@ -172,6 +172,8 @@ enum Msg {
     // a successful browser sign-in must also reconnect the Photos session,
     // not only store the sync-robot credential
     SignedIn,
+    // sign-in finished: close the helper browser and focus our window
+    SignInDone,
     MoreLib(Vec<library::MediaItem>, String, Option<String>),
     Viewer(String, egui::ColorImage),
     ViewerInfo(library::BulkInfo),
@@ -583,8 +585,15 @@ fn url_open_command(target: &str) -> (&'static str, Vec<String>) {
 }
 
 fn open_url(url: &str) {
+    let _ = spawn_open_url(url);
+}
+
+// Like open_url, but returns the child so sign-in can close the window it
+// opened. The OS opener may exit immediately after handing off to a running
+// browser; in that case there is little to close, which is acceptable.
+fn spawn_open_url(url: &str) -> Option<std::process::Child> {
     let (prog, args) = url_open_command(url);
-    let _ = Command::new(prog).args(&args).spawn();
+    Command::new(prog).args(&args).spawn().ok()
 }
 
 // Build the browser argv that opens `url` in the profile discovery inspects.
@@ -1439,20 +1448,23 @@ impl App {
     // local cookie stores until the oauth_token cookie appears — no DevTools
     fn signin_auto(&self) {
         const URL: &str = "https://accounts.google.com/embedded/setup/v2/android";
-        // Open the real browser profile discovery reads. Fall back to the OS
-        // default only when no profile is known yet.
+        // Open the real browser profile discovery reads. Keep the child so we
+        // can close it once sign-in is detected; on Windows/macOS the OS opener
+        // may hand off to a running browser and return no child, which is fine.
         let jar = self
             .selected
             .as_ref()
             .map(|(j, _)| j.clone())
             .unwrap_or_default();
-        if jar.is_empty() {
-            open_url(URL);
+        let browser: Option<std::process::Child> = if let Some((exe, args)) = jar_browser_argv(&jar, URL) {
+            Command::new(&exe).args(&args).spawn().ok()
         } else {
-            open_jar_url(&jar, URL);
-        }
+            spawn_open_url(URL)
+        };
+        let browser = Arc::new(Mutex::new(browser));
 
         let sel = self.selected.clone();
+        let browser2 = browser.clone();
         self.spawn_action(move |tx| {
             // tell the user up front whether this machine even has a session
             let alive = capture_selected(&sel).is_some();
@@ -1483,6 +1495,12 @@ impl App {
                     });
                     let _ = tx.send(Msg::Token(tok));
                     let _ = tx.send(Msg::SignedIn);
+                    let _ = tx.send(Msg::SignInDone);
+                    // close only the browser process we launched for sign-in
+                    if let Some(mut child) = browser2.lock().unwrap().take() {
+                        let _ = child.kill();
+                        let _ = child.wait();
+                    }
                     return;
                 }
                 std::thread::sleep(Duration::from_secs(3));
@@ -2796,6 +2814,9 @@ impl eframe::App for App {
                     self.save_dirs(t);
                 }
                 Msg::Token(t) => self.add_creds(t),
+                Msg::SignInDone => {
+                    ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
+                }
                 Msg::SignedIn => {
                     // clear the logout flag first, then derive the (jar,email)
                     // from the browser session that just completed sign-in
@@ -12313,12 +12334,12 @@ fn main() -> eframe::Result<()> {
     let opts = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([1120.0, 760.0])
-            .with_title("gphotos — Google Photos Desktop Client")
+            .with_title("Google Photos")
             .with_icon(window_icon().unwrap_or(egui::IconData::default())),
         ..Default::default()
     };
     eframe::run_native(
-        "gphotos — Google Photos Desktop Client",
+        "Google Photos",
         opts,
         Box::new(move |cc| Ok(Box::new(App::new(cc, deeplink, bad_link)))),
     )

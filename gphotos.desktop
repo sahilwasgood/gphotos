@@ -1,8 +1,8 @@
 [Desktop Entry]
 Type=Application
-Name=gphotos
-GenericName=Google Photos Desktop Client
-Comment=Browse your Google Photos library on the desktop
+Name=Google Photos
+GenericName=Desktop photo manager
+Comment=Browse your Google Photos library and videos on the desktop
 Exec=gphotos
 Icon=gphotos
 Terminal=false
