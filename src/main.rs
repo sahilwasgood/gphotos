@@ -9270,6 +9270,16 @@ fn draw_skeleton_cell(ui: &mut egui::Ui, size: f32) {
 
     fn open_switch(&mut self) {
         self.switch_open = true;
+        // show the saved accounts immediately (so log-out/switch buttons work
+        // even when Google's discovery endpoint is unavailable), then replace
+        // the list with live discovery when it lands
+        let known: Vec<library::AccountRecord> = library::load_registry()
+            .into_iter()
+            .filter(|r| !r.hidden)
+            .collect();
+        if !known.is_empty() {
+            self.switch_list.lock().unwrap().clone_from(&known);
+        }
         let tx = self.tx.clone();
         let epoch_sh = self.account_epoch.clone();
         let epoch = epoch_sh.load(Ordering::Relaxed);
