@@ -439,6 +439,44 @@ pub struct Album {
     pub is_shared: bool,
 }
 
+/// A real "Things & Places" group from Google Photos (birthday, Mumbai, ...).
+#[derive(Clone)]
+pub struct Thing {
+    pub name: String,
+    pub is_place: bool,
+    pub entity_id: String,
+    pub cover: String,
+}
+
+/// `ZSBAec` is the batchexecute RPC the web People/Things page calls. The
+/// payload asks for the first 100 groups. This is a live, verified endpoint —
+/// not a guessed id. Each row: [kind, name, _, _, _, kg_id, _, _, cover, ...]
+/// with kind 2 = place and 3 = topic/person.
+pub fn things(s: &Session) -> Vec<Thing> {
+    s.rpc("ZSBAec", &serde_json::json!([[[[null, 0, 100]]]]))
+        .map(|v| parse_things(&v))
+        .unwrap_or_default()
+}
+
+fn parse_things(v: &Value) -> Vec<Thing> {
+    // rpc() already parses the wrb.fr payload string; groups are nested four
+    // arrays deep in the live ZSBAec response.
+    let Some(groups) = v.get(0).and_then(|x| x.get(0)).and_then(|x| x.get(0))
+        .and_then(|x| x.get(0)).and_then(Value::as_array) else { return vec![] };
+    let mut out = Vec::new();
+    for r in groups {
+        let Some(arr) = r.as_array() else { continue };
+        let kind = arr.get(0).and_then(Value::as_i64).unwrap_or(0);
+        if kind != 2 && kind != 3 { continue; }
+        let Some(name) = arr.get(1).and_then(Value::as_str) else { continue };
+        if name.is_empty() { continue; }
+        let entity = arr.get(5).and_then(Value::as_str).unwrap_or("").to_string();
+        let cover = arr.get(8).and_then(Value::as_str).unwrap_or("").to_string();
+        out.push(Thing { name: name.to_string(), is_place: kind == 2, entity_id: entity, cover });
+    }
+    out
+}
+
 impl Session {
     // collect google.com cookies from every local browser (firefox plaintext,
     // brave/chrome via gcookies.py with keyring decryption), then use whichever
@@ -2408,5 +2446,25 @@ mod tests {
         assert_eq!(rows[0], ("alice@gmail.com".into(), "Alice Example".into(), true));
         assert_eq!(rows[1], ("dave@gmail.com".into(), "Fallback Name".into(), false),
             "short row has no flags: keep it, name falls back to row[1]");
+    }
+
+    #[test]
+    fn parse_things_reads_real_people_and_places() {
+        // Shape captured live from photos.google.com's ZSBAec RPC.
+        let payload = concat!(
+            "[[[[[[3,\"birthday\",null,1,null,\"/m/01kcnl\",null,null,\"key1\",null,2,\"key1\"],",
+            "[2,\"Mumbai\",null,2,null,null,null,\"0x1\",\"key2\",null,2,\"key2\"],",
+            "[9,\"ignore\",null,3,null,null,null,null,\"key3\",null,2,\"key3\"]]]]]]"
+        );
+        // rpc() returns the already-parsed payload string, not the envelope.
+        let parsed: Value = serde_json::from_str(payload).unwrap();
+        let things = parse_things(&parsed);
+        assert_eq!(things.len(), 2, "topic and place kept, unknown kind dropped");
+        assert_eq!(things[0].name, "birthday");
+        assert!(!things[0].is_place);
+        assert_eq!(things[0].entity_id, "/m/01kcnl");
+        assert_eq!(things[0].cover, "key1");
+        assert_eq!(things[1].name, "Mumbai");
+        assert!(things[1].is_place);
     }
 }

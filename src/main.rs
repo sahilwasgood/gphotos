@@ -165,6 +165,7 @@ enum Msg {
     Lib(Vec<library::MediaItem>, String, Option<String>),
     Albums(Vec<library::Album>, String),
     Links(Vec<library::SharedLink>, String),
+    Things(Vec<library::Thing>, String),
     VideoUrl(String, String),
     Thumb(String, egui::ColorImage),
     RefreshLib,
@@ -672,6 +673,7 @@ struct App {
     lib_items: Arc<Mutex<Vec<library::MediaItem>>>,
     lib_albums: Arc<Mutex<Vec<library::Album>>>,
     lib_links: Arc<Mutex<Vec<library::SharedLink>>>,
+    lib_things: Arc<Mutex<Vec<library::Thing>>>,
     lib_selected: Arc<Mutex<HashSet<String>>>,
     // albums have their own selection: a tile is not a photo
     album_selected: HashSet<String>,
@@ -1014,6 +1016,7 @@ impl App {
             lib_items: Arc::new(Mutex::new(vec![])),
             lib_albums: Arc::new(Mutex::new(vec![])),
             lib_links: Arc::new(Mutex::new(vec![])),
+            lib_things: Arc::new(Mutex::new(vec![])),
             lib_selected: Arc::new(Mutex::new(HashSet::new())),
             album_selected: Default::default(),
             confirm_album_del: false,
@@ -1704,6 +1707,9 @@ impl App {
             if view == "links" {
                 self.lib_links.lock().unwrap().clear();
             }
+            if view == "things" {
+                self.lib_things.lock().unwrap().clear();
+            }
         } else if view.starts_with("search:") {
             // keep the current grid: a failed search must not blank it. Only
             // drop the old page token so scrolling cannot mix two lists.
@@ -1713,6 +1719,7 @@ impl App {
         let items_gen_sh = self.items_gen.clone();
         let albums_sh = self.lib_albums.clone();
         let links_sh = self.lib_links.clone();
+        let things_sh = self.lib_things.clone();
         let sess_sh = self.lib_session.clone();
         let next_sh = self.lib_next.clone();
         let all_sh = self.all_items.clone();
@@ -1904,6 +1911,22 @@ impl App {
                 }
                 *links_sh.lock().unwrap() = links.clone();
                 let _ = tx.send(Msg::Links(links, view.clone()));
+                busy.store(false, Ordering::Relaxed);
+                return;
+            }
+            if view == "things" {
+                let things = library::things(&s);
+                if library::last_rpc_failed() {
+                    busy.store(false, Ordering::Relaxed);
+                    let _ = tx.send(Msg::Toast { msg: fail_msg.clone(), is_error: true });
+                    return;
+                }
+                if epoch_sh.load(Ordering::Relaxed) != epoch {
+                    busy.store(false, Ordering::Relaxed);
+                    return;
+                }
+                *things_sh.lock().unwrap() = things.clone();
+                let _ = tx.send(Msg::Things(things, view.clone()));
                 busy.store(false, Ordering::Relaxed);
                 return;
             }
@@ -2857,13 +2880,18 @@ impl eframe::App for App {
                     self.album_selected.clear();
                     self.sel_anchor = None;
                 }
+                Msg::Things(_, ref v) if v == &self.current_lib_view() => {
+                    self.lib_selected.lock().unwrap().clear();
+                    self.album_selected.clear();
+                    self.sel_anchor = None;
+                }
                 Msg::Links(_, ref v) if v == &self.current_lib_view() => {
                     self.lib_selected.lock().unwrap().clear();
                     self.album_selected.clear();
                     self.sel_anchor = None;
                 }
                 // late reply from a view the user already left: ignore it
-                Msg::Albums(_, _) | Msg::Links(_, _) => {}
+                Msg::Albums(_, _) | Msg::Links(_, _) | Msg::Things(_, _) => {}
                 Msg::VideoUrl(key, url) => {
                     if !url.is_empty() {
                         cache_video_async(&key, &url);
@@ -5320,6 +5348,7 @@ impl App {
                 ("Albums", "albums"),
                 ("Shared albums", "shared"),
                 ("Shared links", "links"),
+                ("Things & places", "things"),
                 ("Locked folder", "locked"),
                 ("Trash", "trash"),
             ] {
@@ -5828,6 +5857,8 @@ impl App {
                         "shared albums".to_string()
                     } else if cur_here == "links" {
                         "shared links".to_string()
+                    } else if cur_here == "things" {
+                        "things & places".to_string()
                     } else if cur_here.starts_with("link:") {
                         "shared link".to_string()
                     } else if cur_here == "hogs" {
@@ -6019,6 +6050,27 @@ impl App {
                                     ui.add_space(8.0);
                                 }
                             });
+                        } else if cur == "things" {
+                            let things = self.lib_things.lock().unwrap().clone();
+                            if things.is_empty() {
+                                ui.label(egui::RichText::new("no things found — refresh to rescan").color(INK_SOFT));
+                            }
+                            ui.horizontal_wrapped(|ui| {
+                                for t in &things {
+                                    ui.group(|ui| {
+                                        ui.vertical(|ui| {
+                                            ui.label(egui::RichText::new(&t.name).size(12.5).strong());
+                                            ui.label(egui::RichText::new(
+                                                if t.is_place { "place" } else { "thing" }
+                                            ).size(10.0).color(INK_SOFT));
+                                            if ui.small_button("show photos").clicked() {
+                                                self.run_search(&t.name);
+                                            }
+                                        });
+                                    });
+                                    ui.add_space(8.0);
+                                }
+                            });
                         } else if cur == "links" {
                             let links = self.lib_links.lock().unwrap().clone();
                             if links.is_empty() {
@@ -6168,8 +6220,8 @@ impl App {
                     let items: &[library::MediaItem] = &owned_items;
                     // date headers only make sense for chronological order
                     let group_by_date = self.grid_sort == 0 || hog_view;
-                    let listing_view =
-                        cur_view == "albums" || cur_view == "shared" || cur_view == "links";
+                    let listing_view = cur_view == "albums" || cur_view == "shared"
+                        || cur_view == "links" || cur_view == "things";
                     if items.is_empty() && !busy && !listing_view {
                         ui.add_space(20.0);
                         let listing = listing_view;
