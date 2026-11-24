@@ -1080,7 +1080,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "gphotos-app"
+name = "gphotos"
 version = "1.1.0"
 dependencies = [
  "arboard",

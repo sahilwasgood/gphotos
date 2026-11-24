@@ -1,9 +1,9 @@
 [package]
-name = "gphotos-app"
+name = "gphotos"
 version = "1.1.0"
 edition = "2021"
 description = "Hand-drawn native desktop client for Google Photos"
-authors = ["gphotos-app contributors"]
+authors = ["gphotos contributors"]
 license = "GPL-3.0"
 repository = "https://github.com/sahilwasgood/gphotos"
 readme = "README.md"

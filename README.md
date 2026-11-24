@@ -32,7 +32,7 @@ first run.
 git clone https://github.com/sahilwasgood/gphotos.git
 cd gphotos
 cargo build --release
-./target/release/gphotos-app
+./target/release/gphotos
 ```
 
 On first run, use the in-app sign-in flow, then confirm in the browser. The app reads the
@@ -44,9 +44,9 @@ below). No credentials are ever written into the repository.
 Pass a link as the first argument to open it on launch:
 
 ```bash
-./target/release/gphotos-app gphotos://photo/AF1QipABC123
-./target/release/gphotos-app gphotos://album/AAK-1234567890
-./target/release/gphotos-app /path/to/shared.gphotoslink
+./target/release/gphotos gphotos://photo/AF1QipABC123
+./target/release/gphotos gphotos://album/AAK-1234567890
+./target/release/gphotos /path/to/shared.gphotoslink
 ```
 
 A `.gphotoslink` is a plain text file whose first non-empty, non-comment line is
@@ -63,7 +63,7 @@ All paths are portable and can be overridden:
 
 | Variable | Meaning | Default |
 |---|---|---|
-| `GPHOTOS_ROOT` | companion-scripts and config directory | `~/.local/share/gphotos-app` |
+| `GPHOTOS_ROOT` | companion-scripts and config directory | `~/.local/share/gphotos` |
 | `GPHOTOS_GOTOHP` | uploader binary used by "make free" | `$GPHOTOS_ROOT/gotohp-cli_amd64` |
 | `GPHOTOS_MUTE` | force mute (used in automated testing) | unset |
 
@@ -81,8 +81,8 @@ environment-gated and cost nothing during normal use.
 ## Tests
 
 ```bash
-cargo test --bin gphotos-app          # 42 offline unit tests
-./target/release/gphotos-app --selftest   # 15 offline + 27 live read-only checks (live needs a signed-in browser session)
+cargo test --bin gphotos          # 42 offline unit tests
+./target/release/gphotos --selftest   # 15 offline + 27 live read-only checks (live needs a signed-in browser session)
 ```
 
 ## Architecture
