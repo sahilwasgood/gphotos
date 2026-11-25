@@ -1,9 +1,10 @@
 # gphotos
 
 A native desktop client for Google Photos, written in Rust with [egui](https://github.com/emilk/egui).
-It talks to the same private web endpoints the browser app uses, so media stays in your Google
-account and nothing is re-uploaded just to browse it. The UI is intentionally hand-drawn
-(Patrick Hand / Caveat) with a paper-and-ink palette.
+It talks to the same private web endpoints the browser app uses through a **session bridge**:
+a small cookie helper reads your own signed-in Google session, and the app speaks Google Photos'
+`batchexecute` RPC directly with it. No browser is embedded and nothing is re-uploaded just to
+browse. The UI is intentionally hand-drawn (Patrick Hand / Caveat) with a paper-and-ink palette.
 
 > Status: actively developed. See `LIMITATIONS.md` for honest limitations and
 > `CONTRIBUTING.md` if you want to help.
