@@ -6128,7 +6128,7 @@ impl App {
                     let snap = self.grid_cache.clone();
                     let sel_set = self.lib_selected.lock().unwrap().clone();
                     let busy = self.lib_busy.load(Ordering::Relaxed);
-                    self.tex_budget = 14;
+                    self.tex_budget = 64;
                     // storage-hogs view: filter by min size, biggest first
                     let hog_view = cur_view == "hogs";
                     let burst_view = cur_view == "bursts";
@@ -10281,12 +10281,19 @@ fn fetch_thumbs_for(s: &library::Session, jobs: &[(String, String)], tx: &mpsc::
     let _ = std::fs::create_dir_all(&dir);
     // failed keys are remembered for this pass: a dead CDN must not make the
     // 5-second fill loop re-queue the same 120 URLs forever
-    static FAILED: std::sync::OnceLock<Mutex<HashSet<String>>> = std::sync::OnceLock::new();
-    let failed = FAILED.get_or_init(|| Mutex::new(HashSet::new()));
-    if jobs.len() != failed.lock().unwrap().len().min(jobs.len()) {
+    // failed keys with the time of the failure: a dead CDN must not be
+    // hammered forever, but a key that failed once must get a retry after a
+    // cooldown — permanent failure left visible tiles blank all session
+    static FAILED: std::sync::OnceLock<Mutex<std::collections::HashMap<String, Instant>>> =
+        std::sync::OnceLock::new();
+    let failed = FAILED.get_or_init(|| Mutex::new(std::collections::HashMap::new()));
+    {
+        let mut f = failed.lock().unwrap();
         // the item set changed — clear old failures so new items get a try
         let keys: HashSet<String> = jobs.iter().map(|(k, _)| k.clone()).collect();
-        failed.lock().unwrap().retain(|k| keys.contains(k));
+        f.retain(|k, _| keys.contains(k));
+        // retry after 60 s instead of never
+        f.retain(|_, at| at.elapsed() < std::time::Duration::from_secs(60));
     }
     // fresh header every pass: brave rotates its session timestamps, so a
     // hours-old header would slowly 403
@@ -10295,7 +10302,7 @@ fn fetch_thumbs_for(s: &library::Session, jobs: &[(String, String)], tx: &mpsc::
     let todo: Vec<(String, String)> = jobs
         .iter()
         .filter(|(k, u)| {
-            !u.is_empty() && !dir.join(k).exists() && !failed.lock().unwrap().contains(k)
+            !u.is_empty() && !dir.join(k).exists() && !failed.lock().unwrap().contains_key(k)
         })
         .cloned()
         .collect();
@@ -10309,7 +10316,7 @@ fn fetch_thumbs_for(s: &library::Session, jobs: &[(String, String)], tx: &mpsc::
                 let dir2 = &dir2;
                 sc.spawn(move || {
                     let Some(bytes) = fetch_thumb(url, cookie) else {
-                        failed.lock().unwrap().insert(key.clone());
+                        failed.lock().unwrap().insert(key.clone(), Instant::now());
                         return;
                     };
                     if save {
