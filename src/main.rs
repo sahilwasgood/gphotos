@@ -2918,16 +2918,20 @@ impl eframe::App for App {
                     }
                 }
                 Msg::Thumb(key, img) => {
-                    // 3000 (~450 MB) balances RAM against re-decode churn:
-                    // evicted tiles show a pulse until the 5 s fill pass
-                    // re-decodes them from the disk cache
-                    const MAX_THUMBS: usize = 3000;
+                    // 600 (~90 MB) keeps the app responsive on a full library.
+                    // The old 3000 cap (~450 MB) made RAM climb into the
+                    // hundreds of MB and looked like a freeze. Evicted tiles
+                    // re-decode from the disk cache in the 5 s fill pass.
+                    const MAX_THUMBS: usize = 600;
                     self.thumb_order.push_back(key.clone());
                     let mut map = self.thumbs.lock().unwrap();
                     map.insert(key, img);
                     while map.len() > MAX_THUMBS {
                         if let Some(old) = self.thumb_order.pop_front() {
                             map.remove(&old);
+                            // drop the GPU texture too: leaving it behind made
+                            // RAM climb to ~500 MB on a full library
+                            self.tex.remove(&old);
                         } else {
                             break;
                         }
