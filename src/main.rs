@@ -8719,15 +8719,16 @@ fn draw_skeleton_cell(ui: &mut egui::Ui, size: f32) {
             .map(|v| Some(v.key.clone()) == self.viewer)
             .unwrap_or(false);
         let mut want_fullscreen = false;
+        // These must be read OUTSIDE ctx.input(): wants_keyboard_input() and
+        // memory_mut() both re-enter the same egui lock. Nesting them inside
+        // ctx.input(|i| ...) deadlocked the UI thread on a competing writer,
+        // making the whole app ignore every click.
+        let wants_kb = ctx.wants_keyboard_input();
+        let esc = ctx.input(|i| i.key_pressed(Key::Escape));
+        if wants_kb && esc {
+            ctx.memory_mut(|m| m.request_focus(egui::Id::NULL));
+        } else if !wants_kb {
         ctx.input(|i| {
-            // never steal keys while the caption/info text field has focus;
-            // Escape is the one exception: leave the field first
-            if ctx.wants_keyboard_input() {
-                if i.key_pressed(Key::Escape) {
-                    ctx.memory_mut(|m| m.request_focus(egui::Id::NULL));
-                }
-                return;
-            }
             if i.key_pressed(Key::Escape) && !self.show_keys {
                 self.close_viewer();
             }
@@ -8821,6 +8822,7 @@ fn draw_skeleton_cell(ui: &mut egui::Ui, size: f32) {
                 self.viewer_nav_guarded(d);
             }
         });
+        } // end else-if !wants_kb
         if want_fullscreen {
             self.toggle_fullscreen(ctx);
         }
