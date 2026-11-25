@@ -2922,16 +2922,20 @@ impl eframe::App for App {
                     // The old 3000 cap (~450 MB) made RAM climb into the
                     // hundreds of MB and looked like a freeze. Evicted tiles
                     // re-decode from the disk cache in the 5 s fill pass.
-                    const MAX_THUMBS: usize = 600;
-                    self.thumb_order.push_back(key.clone());
+                    const MAX_THUMBS: usize = 1200;
                     let mut map = self.thumbs.lock().unwrap();
+                    // only track a key once: duplicate entries in the LRU made
+                    // the loop evict still-visible tiles, leaving blank grids
+                    if !map.contains_key(&key) {
+                        self.thumb_order.push_back(key.clone());
+                    }
                     map.insert(key, img);
                     while map.len() > MAX_THUMBS {
                         if let Some(old) = self.thumb_order.pop_front() {
-                            map.remove(&old);
-                            // drop the GPU texture too: leaving it behind made
-                            // RAM climb to ~500 MB on a full library
-                            self.tex.remove(&old);
+                            if map.remove(&old).is_some() {
+                                // drop the GPU texture with its RAM image
+                                self.tex.remove(&old);
+                            }
                         } else {
                             break;
                         }
@@ -8590,6 +8594,21 @@ fn draw_skeleton_cell(ui: &mut egui::Ui, size: f32) {
             self.items_gen.fetch_add(1, Ordering::Relaxed);
         }
         let action = action.to_string();
+        // instant feedback: the RPC takes a few seconds, so acknowledge the
+        // click now and let the result toast replace it when it lands
+        let pending = match action.as_str() {
+            "trash" => "moving to trash…",
+            "restore" => "restoring…",
+            "delforever" => "deleting forever…",
+            "archive" => "archiving…",
+            "unarchive" => "unarchiving…",
+            "fav" => "adding to favourites…",
+            "unfav" => "removing from favourites…",
+            "lock" => "moving to locked folder…",
+            "unlock" => "unlocking…",
+            _ => "working…",
+        };
+        let _ = tx.send(Msg::Toast { msg: pending.into(), is_error: false });
         thread::spawn(move || {
             let Some(s) = sess_sh.lock().unwrap().clone() else {
                 if action == "fav" || action == "unfav" {
@@ -9838,6 +9857,9 @@ fn draw_skeleton_cell(ui: &mut egui::Ui, size: f32) {
                 .resizable(false)
                 .collapsible(false)
                 .title_bar(false)
+                // the viewer overlay is Order::Foreground; keep toasts above
+                // it so action feedback is visible while a photo is open
+                .order(egui::Order::Foreground)
                 .show(ctx, |ui| {
                     self.pending_toasts
                         .drain(..)
