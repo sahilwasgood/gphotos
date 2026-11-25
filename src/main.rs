@@ -2972,6 +2972,10 @@ impl eframe::App for App {
                     if self.viewer.as_deref() == Some(key.as_str()) {
                         self.tex.remove(&format!("full:{}", key));
                         *self.viewer_img.lock().unwrap() = Some((key, img));
+                    } else {
+                        // a late full-image load for a photo already closed:
+                        // drop it instead of leaving a 22 MB image/texture alive
+                        self.tex.remove(&format!("full:{}", key));
                     }
                 }
                 Msg::ViewerInfo(info) => {
@@ -7101,6 +7105,12 @@ fn draw_skeleton_cell(ui: &mut egui::Ui, size: f32) {
         }
         let preview = self.thumbs.lock().unwrap().get(key).cloned();
         *self.viewer_img.lock().unwrap() = preview.map(|p| (key.to_string(), p));
+        // drop any full-size textures from previous photos: each is up to
+        // ~22 MB, and leaving them behind ballooned RAM on fast navigation
+        let old_keys: Vec<String> = self.tex.keys()
+            .filter(|k| k.starts_with("full:") && k.as_str() != format!("full:{}", key))
+            .cloned().collect();
+        for k in old_keys { self.tex.remove(&k); }
         let it = self
             .lib_items
             .lock()
@@ -7171,6 +7181,11 @@ fn draw_skeleton_cell(ui: &mut egui::Ui, size: f32) {
         // grid; a trashed/archived item would strand a key that matches a
         // different photo in a later view
         let closing = self.viewer.take();
+        // release the full-size GPU texture and decoded image on close
+        if let Some(k) = &closing {
+            self.tex.remove(&format!("full:{}", k));
+            *self.viewer_img.lock().unwrap() = None;
+        }
         if closing
             .as_ref()
             .map(|k| self.lib_items.lock().unwrap().iter().any(|i| &i.media_key == k))
