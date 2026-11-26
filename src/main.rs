@@ -698,8 +698,6 @@ struct App {
     grid_view_h: f32,
     grid_content_h: f32,
     grid_want: Option<f32>,
-    on_this_day: Vec<library::MediaItem>,
-    on_this_day_key: usize,
     grid_sort: u8,
     hog_year: Option<i64>,
     // RAM thumb cache is capped: the disk cache is authoritative and a tile
@@ -1039,8 +1037,6 @@ impl App {
             grid_view_h: 0.0,
             grid_content_h: 0.0,
             grid_want: None,
-            on_this_day: vec![],
-            on_this_day_key: usize::MAX,
             grid_sort: setting("grid_sort", "0").parse().ok().filter(|v: &u8| *v < 4).unwrap_or(0),
             hog_year: None,
             thumb_order: Default::default(),
@@ -3589,49 +3585,6 @@ impl App {
         thread::spawn(move || fetch_thumbs_for(&s, &jobs, &tx));
     }
 
-    // photos taken on today's calendar day in any year — a Google Photos
-    // staple, computed locally from the timestamps we already measured
-    fn on_this_day(&mut self) -> Vec<library::MediaItem> {
-        let key = self.all_items.lock().unwrap().len();
-        if key == self.on_this_day_key && key != 0 {
-            return self.on_this_day.clone();
-        }
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_secs() as i64)
-            .unwrap_or(0);
-        let (_, today_m, today_d) = library::civil_from_days(now.div_euclid(86400));
-        let mut hits: Vec<library::MediaItem> = self
-            .all_items
-            .lock()
-            .unwrap()
-            .iter()
-            .filter(|it| {
-                if it.ts <= 0 {
-                    return false;
-                }
-                let (_, m, d) = library::civil_from_days(it.ts.div_euclid(86400));
-                m == today_m && d == today_d
-            })
-            .cloned()
-            .collect();
-        // the viewer looks items up in lib_items only — a hit that lives in
-        // archive/locked/trash would open a dead, blank viewer
-        let in_grid: std::collections::HashSet<String> = self
-            .lib_items
-            .lock()
-            .unwrap()
-            .iter()
-            .map(|i| i.media_key.clone())
-            .collect();
-        hits.retain(|h| in_grid.contains(&h.media_key));
-        hits.sort_by(|a, b| b.ts.cmp(&a.ts));
-        hits.truncate(8);
-        self.on_this_day_key = key;
-        self.on_this_day = hits.clone();
-        hits
-    }
-
     // keep paging the timeline in the background so the scroll range (and the
     // date rail) reaches the bottom on a fresh session, for every account
     fn warm_pump(&mut self) {
@@ -4849,7 +4802,11 @@ impl App {
         if !linux_sync_available() {
             egui::CentralPanel::default().show(ctx, |ui| {
                 ui.vertical_centered(|ui| {
-                    ui.add_space(80.0);
+                    ui.add_space(40.0);
+                    if ui.button("< back to photos").clicked() {
+                        *self.page.lock().unwrap() = "photos".into();
+                    }
+                    ui.add_space(40.0);
                     ui.label(egui::RichText::new("Sync robot").size(28.0).strong());
                     ui.add_space(10.0);
                     ui.label(egui::RichText::new(linux_sync_notice(false)).color(INK_SOFT));
@@ -4871,6 +4828,9 @@ impl App {
         };
 
         egui::TopBottomPanel::top("top").show(ctx, |ui| {
+            if ui.button("< back to photos").clicked() {
+                *self.page.lock().unwrap() = "photos".into();
+            }
             let t = self.start.elapsed().as_secs_f32();
             ui.horizontal(|ui| {
                 let (rect, _) = ui.allocate_exact_size(Vec2::new(78.0, 84.0), egui::Sense::hover());
@@ -5884,25 +5844,6 @@ impl App {
                     }
                 });
                 ui.separator();
-            }
-            if cur_here == "recent" {
-                let hits = self.on_this_day();
-                if hits.len() > 1 {
-                    ui.add_space(6.0);
-                    ui.label(
-                        egui::RichText::new("On this day")
-                            .size(14.0)
-                            .strong()
-                            .color(INK),
-                    );
-                    ui.horizontal_wrapped(|ui| {
-                        let sel = self.lib_selected.lock().unwrap().clone();
-                        for it in &hits {
-                            self.draw_thumb_cell(ui, it, sel.contains(&it.media_key), &hits);
-                        }
-                    });
-                    ui.separator();
-                }
             }
             if let Some(k) = &album_key {
                 let tx = self.tx.clone();
@@ -9787,8 +9728,6 @@ fn draw_skeleton_cell(ui: &mut egui::Ui, size: f32) {
         self.month_cache.clear();
         self.month_cache_key = usize::MAX;
         self.date_labels.clear();
-        self.on_this_day.clear();
-        self.on_this_day_key = usize::MAX;
         self.view_prev.lock().unwrap().clear();
         self.grid_frac = 0.0;
         self.grid_want = None;
