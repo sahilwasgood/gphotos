@@ -227,6 +227,12 @@ fn picked_folder(pick: Option<PathBuf>) -> Option<String> {
         .filter(|s| !s.is_empty())
 }
 
+// Only real files are staged from a drag; directories and non-file targets
+// are ignored. Pure so the drop path is testable without a GUI.
+fn dropped_file_paths(files: Vec<std::path::PathBuf>) -> Vec<std::path::PathBuf> {
+    files.into_iter().filter(|p| p.is_file()).collect()
+}
+
 fn picked_files(pick: Option<Vec<PathBuf>>) -> Vec<String> {
     pick.unwrap_or_default()
         .into_iter()
@@ -839,6 +845,10 @@ struct App {
     thumb_size: f32,
     // uploads: free (no storage used), saver (smaller file), quota (full quality)
     upload_mode: String,
+    // files staged for upload from drag-and-drop or the picker; nothing is
+    // uploaded until the user presses Start in the popup
+    upload_queue: Vec<std::path::PathBuf>,
+    upload_popup: bool,
     // where a storage job runs: this computer, or the signed-in Colab account
     engine: String,
     // play videos with sound instead of muted
@@ -1107,6 +1117,8 @@ impl App {
                 let e = setting("engine", "local");
                 if e == "colab" { e } else { "local".into() }
             },
+            upload_queue: Vec::new(),
+            upload_popup: false,
             upload_mode: {
                 let m = setting("upload_mode", "free");
                 if m == "saver" || m == "quota" { m } else { "free".into() }
@@ -2720,6 +2732,16 @@ fn human_size(n: u64) -> String {
 
 impl eframe::App for App {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        // drag photos/videos anywhere in the app: stage them for review, never
+        // start an upload without the explicit Start button
+        let dropped: Vec<std::path::PathBuf> = {
+            let files = ctx.input(|i| i.raw.dropped_files.clone());
+            dropped_file_paths(files.into_iter().filter_map(|f| f.path).collect())
+        };
+        if !dropped.is_empty() {
+            self.upload_queue.extend(dropped);
+            self.upload_popup = true;
+        }
         let mut want_keys: Option<bool> = None;
         self.hover_want = None;
         // ctrl+wheel over the grid resizes thumbnails, the way a file manager
@@ -3195,6 +3217,7 @@ impl eframe::App for App {
         if self.switch_open {
             self.switch_ui(ctx);
         }
+        self.upload_popup_ui(ctx);
         self.storage_ui(ctx);
         self.jump_pump();
         self.warm_pump();
@@ -4608,55 +4631,105 @@ impl App {
         }
     }
 
-    // pick files with the same dialog the folder picker uses, then hand them to
-    // the uploader with the flag that matches the chosen cost
+    // stage chosen files in the review popup — nothing uploads until Start
     fn upload_pick(&mut self) {
+        let files = picked_files(
+            rfd::FileDialog::new()
+                .set_title("Choose photos or videos to upload")
+                .pick_files(),
+        );
+        if !files.is_empty() {
+            self.upload_queue.extend(files.into_iter().map(std::path::PathBuf::from));
+            self.upload_popup = true;
+        }
+    }
+
+    // the popup: file list, mode, and an explicit Start button
+    fn upload_popup_ui(&mut self, ctx: &egui::Context) {
+        if !self.upload_popup {
+            return;
+        }
+        let mut open = true;
+        let mut start = false;
+        let mut cancel = false;
+        egui::Window::new("Upload files")
+            .collapsible(false)
+            .resizable(true)
+            .open(&mut open)
+            .show(ctx, |ui| {
+                ui.label(egui::RichText::new(
+                    "These files are only staged. Nothing is uploaded until you press Start."
+                ).size(13.0).color(INK));
+                ui.add_space(6.0);
+                if self.upload_queue.is_empty() {
+                    ui.label("No files selected.");
+                } else {
+                    egui::Grid::new("upload_queue_grid").num_columns(2).show(ui, |ui| {
+                        for (i, p) in self.upload_queue.iter().enumerate() {
+                            let name = p.file_name().map(|n| n.to_string_lossy().into_owned())
+                                .unwrap_or_else(|| p.to_string_lossy().into_owned());
+                            let size = std::fs::metadata(p).map(|m| m.len()).unwrap_or(0);
+                            ui.label(egui::RichText::new(truncate(&name, 48)).size(12.5));
+                            ui.label(egui::RichText::new(human_size(size)).size(11.5).color(INK_SOFT));
+                            ui.end_row();
+                            let _ = i;
+                        }
+                    });
+                }
+                ui.add_space(8.0);
+                let cost = match self.upload_mode.as_str() {
+                    "saver" => "storage saver (smaller file, uses quota)",
+                    "quota" => "original quality, uses quota",
+                    _ => "free endpoint (no storage used, original quality)",
+                };
+                ui.label(egui::RichText::new(format!("Upload mode: {cost}")).size(12.5));
+                ui.add_space(8.0);
+                ui.horizontal(|ui| {
+                    start = ui.add_enabled(
+                        !self.upload_queue.is_empty(),
+                        egui::Button::new(egui::RichText::new("Start upload").size(14.0).strong())
+                    ).clicked();
+                    cancel = ui.button("Cancel").clicked();
+                });
+            });
+        if cancel {
+            self.upload_queue.clear();
+            self.upload_popup = false;
+        }
+        if !open {
+            self.upload_popup = false;
+        }
+        if start && !self.upload_queue.is_empty() {
+            self.start_upload();
+            self.upload_queue.clear();
+            self.upload_popup = false;
+        }
+    }
+
+    // actually run the uploader on the staged files
+    fn start_upload(&self) {
+        let files = self.upload_queue.clone();
         let mode = self.upload_mode.clone();
         let bin = std::env::var("GPHOTOS_GOTOHP")
             .unwrap_or_else(|_| gotohp_bin().to_string_lossy().into_owned());
         self.spawn_action(move |tx| {
-            let files = picked_files(
-                rfd::FileDialog::new()
-                    .set_title("Choose photos or videos to upload")
-                    .pick_files(),
-            );
-            if files.is_empty() {
-                return;
-            }
             let mut c = Command::new(&bin);
-            c.arg("upload")
-                .args(&files)
-                .arg("--no-tui")
-                .arg("-l")
-                .arg("warn");
+            c.arg("upload").args(&files).arg("--no-tui").arg("-l").arg("warn");
             match mode.as_str() {
-                "saver" => {
-                    c.arg("--saver");
-                }
-                "quota" => {
-                    c.arg("--use-quota");
-                }
+                "saver" => { c.arg("--saver"); }
+                "quota" => { c.arg("--use-quota"); }
                 _ => {}
             }
             let (ok, out) = run_cmd(&mut c);
             let msg = if ok {
-                format!(
-                    "uploaded {} file(s) · {}",
-                    files.len(),
-                    match mode.as_str() {
-                        "saver" => "storage saver",
-                        "quota" => "counts against storage",
-                        _ => "no storage used",
-                    }
-                )
+                format!("uploaded {} file(s) · {}", files.len(), match mode.as_str() {
+                    "saver" => "storage saver", "quota" => "counts against storage",
+                    _ => "no storage used",
+                })
             } else {
-                let last = out.lines().last().unwrap_or("uploader said no").to_string();
-                format!("upload failed: {}", truncate(&last, 120))
+                format!("upload failed: {}", truncate(out.lines().last().unwrap_or("uploader said no"), 120))
             };
-            let _ = tx.send(Msg::Toast {
-                msg,
-                is_error: !ok,
-            });
+            let _ = tx.send(Msg::Toast { msg, is_error: !ok });
         });
     }
 
@@ -12916,5 +12989,21 @@ mod deeplink_tests {
             parse_deeplink("gphotos://album/Album%2BKey"),
             Some((Kind::Album(None), "Album+Key".into()))
         );
+    }
+}
+
+#[cfg(test)]
+mod upload_tests {
+    use super::*;
+
+    #[test]
+    fn dropped_file_paths_keeps_only_real_files() {
+        let temp = std::env::temp_dir().join("gphotos-drop-test");
+        let _ = std::fs::create_dir_all(&temp);
+        let file = temp.join("photo.jpg");
+        let _ = std::fs::write(&file, b"x");
+        let got = dropped_file_paths(vec![file.clone(), temp.clone()]);
+        assert_eq!(got, vec![file], "directory dropped alongside a file must be ignored");
+        let _ = std::fs::remove_dir_all(&temp);
     }
 }
