@@ -14,7 +14,7 @@ browse. The UI is intentionally hand-drawn (Patrick Hand / Caveat) with a paper-
 - **Timeline** with a month/date rail sized by items per month; click or drag to jump, double-click a month to filter to that year.
 - **Video playback** in-app: native ffmpeg pipe, streaming with seek, muted testing hooks, hover previews, per-file resume, proximity-hidden controls.
 - **Search** through Google plus local `file:` search over filenames/captions from the one-time library scan.
-- **Local filters**: combinable videos/photos/large toggles (e.g. videos ≥100 MB), year chips, month/type views, duplicate candidates, bursts, "On this day"; sortable by date, name or size.
+- **Local filters**: combinable videos/photos/large toggles (e.g. videos ≥100 MB), year chips, month/type views, duplicate candidates, bursts; sortable by date, name or size.
 - **Albums**: create, delete, share links, copy link, manage access on the web, sort, paperclip badge on shared albums; dedicated shared-album and shared-link views.
 - **Storage**: quota reading, full-library measurement, biggest-items report, per-type/per-year breakdown, make-items-free workflow with optional Colab batch job.
 - **Management**: multi-select (Ctrl+A, Ctrl/Shift-click), keyboard triage (F/E/Delete), per-photo right-click actions, undo for bulk trash/archive/favourite, caption and date editing, metadata CSV export, bulk original download with real filenames. Sort preferences persist.
@@ -82,7 +82,7 @@ environment-gated and cost nothing during normal use.
 ## Tests
 
 ```bash
-cargo test --bin gphotos          # 42 offline unit tests
+cargo test --bin gphotos          # 50 offline unit tests
 ./target/release/gphotos --selftest   # 15 offline + 27 live read-only checks (live needs a signed-in browser session)
 ```
 

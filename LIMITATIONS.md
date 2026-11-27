@@ -18,7 +18,7 @@ your needs. No feature is faked to look complete.
    frame never arrives the player shows "could not load video — click to
    retry". CDNs that reject range requests are downloaded to a local cache
    first (up to 1800 s).
-6. **Local views** (videos, large files, duplicate candidates, "On this day",
+6. **Local views** (videos, large files, duplicate candidates,
    type views, combinable filters) use the one-time library scan. They show an
    honest "needs the one-time scan" message until it completes.
 7. **Sorting in local views** — "oldest", "name" and "largest" sort the items
