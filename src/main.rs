@@ -14,6 +14,7 @@ use std::time::{Duration, Instant};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 
 mod library;
+mod agent;
 
 // Portable paths. GPHOTOS_ROOT overrides the data root; config and cache follow
 // the OS via `dirs` (XDG on Linux, known folders on Windows/macOS).
@@ -12069,6 +12070,10 @@ fn main() -> eframe::Result<()> {
     // --info <media key>… prints what Google says about an item: its real
     // timestamp, size, whether it takes quota space, and its quality.
     let argv: Vec<String> = std::env::args().collect();
+    // --agent <command>: machine-readable JSON-lines for AI agents
+    if let Some(code) = agent::run(&argv) {
+        std::process::exit(code);
+    }
     // --import-cookies <file>: headless Windows-ABE import. Prints only a count
     // on success; a rejected file never exposes its contents in output/logs.
     if let Some(p) = argv.iter().position(|a| a == "--import-cookies") {
