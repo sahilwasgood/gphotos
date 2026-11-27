@@ -327,6 +327,19 @@ pub fn forget_session(jar: &str, email: &str) -> bool {
     }
 }
 
+/// Drop the cached session for one identity so the next capture gets a fresh
+/// `at` token from Google. A stale cached `at` makes every RPC answer with
+/// status [7] — indistinguishable from an outage unless you recapture.
+pub fn invalidate_session(jar: &str, email: &str) -> bool {
+    let mut map = Session::read_sessions();
+    let key = session_key(jar, email);
+    if map.remove(&key).is_none() {
+        let legacy = format!("|{}", email);
+        map.retain(|k, _| !k.ends_with(&legacy));
+    }
+    write_secret(&sessions_path(), &Value::Object(map).to_string())
+}
+
 pub fn forget_all_sessions() -> bool {
     write_secret(&sessions_path(), "{}")
 }

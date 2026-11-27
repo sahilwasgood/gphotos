@@ -9,6 +9,11 @@
 use crate::library;
 use serde_json::{json, Value};
 
+// A refused RPC (Google status [7]) usually means a stale cached `at` token.
+// Return this sentinel from dispatch so run() can drop the cache and retry once
+// with a freshly captured session instead of reporting a false "empty" result.
+const RPC_FAIL: i32 = 2;
+
 fn ok(command: &str, data: Value) -> i32 {
     println!("{}", json!({"ok": true, "command": command, "data": data}));
     0
@@ -17,6 +22,10 @@ fn ok(command: &str, data: Value) -> i32 {
 fn err(command: &str, message: &str) -> i32 {
     eprintln!("{}", json!({"ok": false, "command": command, "error": message}));
     1
+}
+
+fn rpc_fail() -> i32 {
+    RPC_FAIL // silent: run() retries once, then prints the error
 }
 
 fn item_json(i: &library::MediaItem) -> Value {
@@ -89,6 +98,168 @@ fn no_session(command: &str) -> i32 {
     err(command, "no Google Photos session — sign in first")
 }
 
+fn capture_session() -> Option<library::Session> {
+    // Use the SAME selected identity as the GUI. Session::capture() is the
+    // legacy authuser=0 probe; on a multi-account browser it often lands on a
+    // different account and its RPCs are refused with status [7].
+    let jar = crate::setting("selected_jar", "");
+    let email = crate::setting("selected_email", "");
+    let s = if !jar.is_empty() && !email.is_empty() {
+        library::Session::capture_identity(&jar, &email)
+    } else {
+        None
+    }.or_else(|| library::Session::capture());
+    s
+}
+
+fn forced_capture_session() -> Option<library::Session> {
+    // cache-first revalidation returns an empty HTML shell here, so it silently
+    // keeps a stale token. Drop the cache to force a full fresh capture loop.
+    let jar = crate::setting("selected_jar", "");
+    let email = crate::setting("selected_email", "");
+    if !jar.is_empty() && !email.is_empty() {
+        library::invalidate_session(&jar, &email);
+    }
+    capture_session()
+}
+
+fn dispatch(s: &library::Session, command: &str, argv: &[String]) -> i32 {
+    match command {
+        "status" => {
+            let reg = library::load_registry();
+            ok(command, json!({
+                "app": "gphotos",
+                "version": env!("CARGO_PKG_VERSION"),
+                "account": s.email,
+                "session": "ok",
+                "accounts": reg.iter().map(|a| json!({"jar": a.jar, "email": a.email, "hidden": a.hidden})).collect::<Vec<_>>(),
+                "write_enabled": write_allowed(argv),
+            }))
+        }
+        "list" => {
+            let view = arg(argv, "--view").unwrap_or_else(|| "recent".into());
+            let page = arg(argv, "--page");
+            let (items, next) = match view.as_str() {
+                "recent" => library::recent(s, page.as_deref()),
+                "archive" => library::archive(s, page.as_deref()),
+                "favorites" => library::favorites(s, page.as_deref()),
+                "trash" => library::trash(s, page.as_deref()),
+                "locked" => library::locked(s, page.as_deref()),
+                _ => return err(command, &format!("unknown view: {view}")),
+            };
+            if library::last_rpc_failed() { return rpc_fail(); }
+            let (items, next) = match limit(argv) {
+                Some(n) => (items.into_iter().take(n).collect::<Vec<_>>(), next),
+                None => (items, next),
+            };
+            ok(command, json!({"view": view, "data": items_json(&items, next)}))
+        }
+        "find" => {
+            let q = match arg(argv, "--query") {
+                Some(q) => q,
+                None => return err(command, "missing --query"),
+            };
+            let (items, next) = library::search(s, &q, arg(argv, "--page").as_deref());
+            if library::last_rpc_failed() { return rpc_fail(); }
+            ok(command, json!({"query": q, "data": items_json(&items, next)}))
+        }
+        "info" => {
+            let k = keys(argv);
+            if k.is_empty() { return err(command, "missing --keys"); }
+            let infos = library::bulk_info(s, &k);
+            if library::last_rpc_failed() { return rpc_fail(); }
+            ok(command, json!({"items": infos.iter().map(|b| json!({
+                "media_key": b.media_key, "filename": b.filename, "description": b.description,
+                "size": b.size, "ts": b.timestamp, "takes_space": b.takes_up_space,
+                "original_quality": b.original_quality, "source": b.source,
+            })).collect::<Vec<_>>()}))
+        }
+        "quota" => match library::quota(s) {
+            Some(q) => ok(command, json!({"used": q.used, "available": q.available, "gphotos": q.gphotos})),
+            None => rpc_fail(),
+        },
+        "albums" => {
+            let (albums, next) = library::albums(s, arg(argv, "--page").as_deref());
+            if library::last_rpc_failed() { return rpc_fail(); }
+            ok(command, json!({"albums": albums.iter().map(|a| json!({
+                "key": a.key, "title": a.title, "count": a.count, "is_shared": a.is_shared,
+            })).collect::<Vec<_>>(), "next_page_token": next}))
+        }
+        "things" => {
+            let t = library::things(s);
+            if library::last_rpc_failed() { return rpc_fail(); }
+            ok(command, json!({"groups": t.iter().map(|x| json!({
+                "name": x.name, "is_place": x.is_place, "entity_id": x.entity_id,
+            })).collect::<Vec<_>>()}))
+        }
+        "links" => {
+            let (links, next) = library::links(s, arg(argv, "--page").as_deref());
+            if library::last_rpc_failed() { return rpc_fail(); }
+            ok(command, json!({"links": links.iter().map(|l| json!({"key": l.key, "count": l.count})).collect::<Vec<_>>(), "next_page_token": next}))
+        }
+        "favorite" | "unfavorite" => {
+            if !write_allowed(argv) { return err(command, "write disabled — set GPHOTOS_AGENT_WRITE=1 or pass --allow-write"); }
+            let k = keys(argv);
+            if k.is_empty() { return err(command, "missing --keys"); }
+            let dk = dedup_keys(s, &k);
+            let on = command == "favorite";
+            let changed = library::set_favorite(s, &dk, on);
+            if changed { ok(command, json!({"changed": dk.len(), "favorite": on})) }
+            else { err(command, "favorite RPC failed") }
+        }
+        "trash" | "restore" | "archive" | "unarchive" | "lock" | "unlock" => {
+            if !write_allowed(argv) { return err(command, "write disabled — set GPHOTOS_AGENT_WRITE=1 or pass --allow-write"); }
+            let k = keys(argv);
+            if k.is_empty() { return err(command, "missing --keys"); }
+            let dk = dedup_keys(s, &k);
+            let done = match command {
+                "trash" => library::set_trashed(s, &dk, true),
+                "restore" => library::set_trashed(s, &dk, false),
+                "archive" => library::set_archived(s, &dk, true),
+                "unarchive" => library::set_archived(s, &dk, false),
+                "lock" => library::lock_items(s, &dk),
+                "unlock" => library::unlock_items(s, &dk),
+                _ => false,
+            };
+            if done { ok(command, json!({"changed": dk.len()})) } else { err(command, "RPC failed") }
+        }
+        "create-album" => {
+            if !write_allowed(argv) { return err(command, "write disabled — set GPHOTOS_AGENT_WRITE=1 or pass --allow-write"); }
+            let name = match arg(argv, "--name") { Some(n) => n, None => return err(command, "missing --name") };
+            match library::create_album(s, &name) {
+                Some(key) => ok(command, json!({"album_key": key, "title": name})),
+                None => err(command, "create album failed"),
+            }
+        }
+        "share" => {
+            if !write_allowed(argv) { return err(command, "write disabled — set GPHOTOS_AGENT_WRITE=1 or pass --allow-write"); }
+            let k = keys(argv);
+            if k.is_empty() { return err(command, "missing --keys"); }
+            match library::create_share_link(s, &k) {
+                Some(url) => ok(command, json!({"url": url})),
+                None => err(command, "share link failed"),
+            }
+        }
+        "delete-forever" => {
+            if !write_allowed(argv) { return err(command, "write disabled — set GPHOTOS_AGENT_WRITE=1 or pass --allow-write"); }
+            let k = keys(argv);
+            if k.is_empty() { return err(command, "missing --keys"); }
+            // explicit confirm token must match the single media_key, mirroring
+            // the UI's two-step warning for a destructive, unrecoverable action
+            let confirm = arg(argv, "--confirm");
+            if k.len() != 1 || confirm.as_deref() != Some(k[0].as_str()) {
+                return err(command, "delete-forever needs exactly one --keys entry and --confirm <that same media_key>");
+            }
+            let dk = dedup_keys(s, &k);
+            let ok1 = library::set_trashed(s, &dk, true);
+            let ok2 = library::delete_forever(s, &dk);
+            if ok1 && ok2 { ok(command, json!({"deleted": 1, "media_key": k[0]})) }
+            else { err(command, "delete failed") }
+        }
+        other => err("agent", &format!("unknown command: {other}; run --agent help")),
+    }
+}
+
 /// Dispatch an --agent command. Returns None when argv does not request it.
 pub fn run(argv: &[String]) -> Option<i32> {
     let p = argv.iter().position(|a| a == "--agent")?;
@@ -111,146 +282,24 @@ pub fn run(argv: &[String]) -> Option<i32> {
         return Some(0);
     }
 
-    let s = match library::Session::capture() {
+    let s = match capture_session() {
         Some(s) => s,
         None => return Some(no_session(command)),
     };
-
-    let code = match command {
-        "status" => {
-            let reg = library::load_registry();
-            ok(command, json!({
-                "app": "gphotos",
-                "version": env!("CARGO_PKG_VERSION"),
-                "account": s.email,
-                "session": "ok",
-                "accounts": reg.iter().map(|a| json!({"jar": a.jar, "email": a.email, "hidden": a.hidden})).collect::<Vec<_>>(),
-                "write_enabled": write_allowed(argv),
-            }))
+    let mut code = dispatch(&s, command, argv);
+    if code == RPC_FAIL {
+        // A refused RPC is almost always a stale cached token: revalidation got
+        // an empty page and kept it. Drop the cache and retry once with a fresh
+        // full capture — this is the exact recovery that fixes the dead list.
+        if let Some(fresh) = forced_capture_session() {
+            code = dispatch(&fresh, command, argv);
         }
-        "list" => {
-            let view = arg(argv, "--view").unwrap_or_else(|| "recent".into());
-            let page = arg(argv, "--page");
-            let (items, next) = match view.as_str() {
-                "recent" => library::recent(&s, page.as_deref()),
-                "archive" => library::archive(&s, page.as_deref()),
-                "favorites" => library::favorites(&s, page.as_deref()),
-                "trash" => library::trash(&s, page.as_deref()),
-                "locked" => library::locked(&s, page.as_deref()),
-                _ => return Some(err(command, &format!("unknown view: {view}"))),
-            };
-            if library::last_rpc_failed() { return Some(err(command, "Google Photos did not answer — retry")); }
-            let (items, next) = match limit(argv) {
-                Some(n) => (items.into_iter().take(n).collect::<Vec<_>>(), next),
-                None => (items, next),
-            };
-            ok(command, json!({"view": view, "data": items_json(&items, next)}))
-        }
-        "find" => {
-            let q = match arg(argv, "--query") {
-                Some(q) => q,
-                None => return Some(err(command, "missing --query")),
-            };
-            let (items, next) = library::search(&s, &q, arg(argv, "--page").as_deref());
-            if library::last_rpc_failed() { return Some(err(command, "Google Photos did not answer — retry")); }
-            ok(command, json!({"query": q, "data": items_json(&items, next)}))
-        }
-        "info" => {
-            let k = keys(argv);
-            if k.is_empty() { return Some(err(command, "missing --keys")); }
-            let infos = library::bulk_info(&s, &k);
-            if library::last_rpc_failed() { return Some(err(command, "Google Photos did not answer — retry")); }
-            ok(command, json!({"items": infos.iter().map(|b| json!({
-                "media_key": b.media_key, "filename": b.filename, "description": b.description,
-                "size": b.size, "ts": b.timestamp, "takes_space": b.takes_up_space,
-                "original_quality": b.original_quality, "source": b.source,
-            })).collect::<Vec<_>>()}))
-        }
-        "quota" => match library::quota(&s) {
-            Some(q) => ok(command, json!({"used": q.used, "available": q.available, "gphotos": q.gphotos})),
-            None => err(command, "could not read quota"),
-        },
-        "albums" => {
-            let (albums, next) = library::albums(&s, arg(argv, "--page").as_deref());
-            if library::last_rpc_failed() { return Some(err(command, "Google Photos did not answer — retry")); }
-            ok(command, json!({"albums": albums.iter().map(|a| json!({
-                "key": a.key, "title": a.title, "count": a.count, "is_shared": a.is_shared,
-            })).collect::<Vec<_>>(), "next_page_token": next}))
-        }
-        "things" => {
-            let t = library::things(&s);
-            if library::last_rpc_failed() { return Some(err(command, "Google Photos did not answer — retry")); }
-            ok(command, json!({"groups": t.iter().map(|x| json!({
-                "name": x.name, "is_place": x.is_place, "entity_id": x.entity_id,
-            })).collect::<Vec<_>>()}))
-        }
-        "links" => {
-            let (links, next) = library::links(&s, arg(argv, "--page").as_deref());
-            if library::last_rpc_failed() { return Some(err(command, "Google Photos did not answer — retry")); }
-            ok(command, json!({"links": links.iter().map(|l| json!({"key": l.key, "count": l.count})).collect::<Vec<_>>(), "next_page_token": next}))
-        }
-        "favorite" | "unfavorite" => {
-            if !write_allowed(argv) { return Some(err(command, "write disabled — set GPHOTOS_AGENT_WRITE=1 or pass --allow-write")); }
-            let k = keys(argv);
-            if k.is_empty() { return Some(err(command, "missing --keys")); }
-            let dk = dedup_keys(&s, &k);
-            let on = command == "favorite";
-            let changed = library::set_favorite(&s, &dk, on);
-            if changed { ok(command, json!({"changed": dk.len(), "favorite": on})) }
-            else { err(command, "favorite RPC failed") }
-        }
-        "trash" | "restore" | "archive" | "unarchive" | "lock" | "unlock" => {
-            if !write_allowed(argv) { return Some(err(command, "write disabled — set GPHOTOS_AGENT_WRITE=1 or pass --allow-write")); }
-            let k = keys(argv);
-            if k.is_empty() { return Some(err(command, "missing --keys")); }
-            let dk = dedup_keys(&s, &k);
-            let done = match command {
-                "trash" => library::set_trashed(&s, &dk, true),
-                "restore" => library::set_trashed(&s, &dk, false),
-                "archive" => library::set_archived(&s, &dk, true),
-                "unarchive" => library::set_archived(&s, &dk, false),
-                "lock" => library::lock_items(&s, &dk),
-                "unlock" => library::unlock_items(&s, &dk),
-                _ => false,
-            };
-            if done { ok(command, json!({"changed": dk.len()})) } else { err(command, "RPC failed") }
-        }
-        "create-album" => {
-            if !write_allowed(argv) { return Some(err(command, "write disabled — set GPHOTOS_AGENT_WRITE=1 or pass --allow-write")); }
-            let name = match arg(argv, "--name") { Some(n) => n, None => return Some(err(command, "missing --name")) };
-            match library::create_album(&s, &name) {
-                Some(key) => ok(command, json!({"album_key": key, "title": name})),
-                None => err(command, "create album failed"),
-            }
-        }
-        "share" => {
-            if !write_allowed(argv) { return Some(err(command, "write disabled — set GPHOTOS_AGENT_WRITE=1 or pass --allow-write")); }
-            let k = keys(argv);
-            if k.is_empty() { return Some(err(command, "missing --keys")); }
-            match library::create_share_link(&s, &k) {
-                Some(url) => ok(command, json!({"url": url})),
-                None => err(command, "share link failed"),
-            }
-        }
-        "delete-forever" => {
-            if !write_allowed(argv) { return Some(err(command, "write disabled — set GPHOTOS_AGENT_WRITE=1 or pass --allow-write")); }
-            let k = keys(argv);
-            if k.is_empty() { return Some(err(command, "missing --keys")); }
-            // explicit confirm token must match the single media_key, mirroring
-            // the UI's two-step warning for a destructive, unrecoverable action
-            let confirm = arg(argv, "--confirm");
-            if k.len() != 1 || confirm.as_deref() != Some(k[0].as_str()) {
-                return Some(err(command, "delete-forever needs exactly one --keys entry and --confirm <that same media_key>"));
-            }
-            let dk = dedup_keys(&s, &k);
-            let ok1 = library::set_trashed(&s, &dk, true);
-            let ok2 = library::delete_forever(&s, &dk);
-            if ok1 && ok2 { ok(command, json!({"deleted": 1, "media_key": k[0]})) }
-            else { err(command, "delete failed") }
-        }
-        other => err("agent", &format!("unknown command: {other}; run --agent help")),
-    };
-    Some(code)
+    }
+    if code == RPC_FAIL {
+        Some(err(command, "Google Photos did not answer — retry"))
+    } else {
+        Some(code)
+    }
 }
 
 #[cfg(test)]
@@ -267,7 +316,6 @@ mod tests {
 
     #[test]
     fn delete_forever_confirm_requires_exact_key() {
-        // The guard is a pure comparison of --confirm to the single key.
         let argv: Vec<String> = ["--agent", "delete-forever", "--keys", "K1", "--confirm", "K1"]
             .iter().map(|s| s.to_string()).collect();
         let k = keys(&argv);
@@ -280,10 +328,17 @@ mod tests {
 
     #[test]
     fn write_gate_defaults_to_off() {
-        let argv: Vec<String> = ["--agent", "trash", "--keys", "K1"].iter().map(|s| s.to_string()).collect();
-        // env may be set in CI; test the flag half only when env is unset
+        let argv: Vec<String> = ["--agent", "trash", "--keys", "K1"]
+            .iter().map(|s| s.to_string()).collect();
         if std::env::var("GPHOTOS_AGENT_WRITE").is_err() {
             assert!(!write_allowed(&argv));
         }
+    }
+
+    #[test]
+    fn rpc_fail_is_a_distinct_retry_sentinel() {
+        assert_eq!(rpc_fail(), RPC_FAIL);
+        assert_ne!(RPC_FAIL, ok("x", json!({})));
+        assert_ne!(RPC_FAIL, err("x", "nope"));
     }
 }
