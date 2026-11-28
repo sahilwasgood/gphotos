@@ -14,7 +14,6 @@ you agree that your work is licensed the same way.
 ## Making a change
 
 ```bash
-source ~/.cargo/env                 # if cargo is not on your PATH
 cargo build --release
 cargo test --bin gphotos            # offline unit tests
 ./target/release/gphotos --selftest # needs a signed-in browser session

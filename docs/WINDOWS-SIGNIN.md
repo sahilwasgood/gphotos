@@ -107,7 +107,7 @@ contents** in it.
 - **From a terminal (headless):**
 
   ```text
-  gphotos-app.exe --import-cookies "C:\path\to\cookies.json"
+  gphotos.exe --import-cookies "C:\path\to\cookies.json"
   ```
 
   Success prints only `imported N account(s) ...`; failure prints a generic

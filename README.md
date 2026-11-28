@@ -1,5 +1,7 @@
 # gphotos
 
+[![CI](https://github.com/sahilwasgood/gphotos/actions/workflows/ci.yml/badge.svg)](https://github.com/sahilwasgood/gphotos/actions/workflows/ci.yml)
+
 A native desktop client for Google Photos. Built in Rust with egui, it opens your
 library in a hand-drawn paper-and-ink timeline, plays videos in-app, and lets you
 manage photos without a browser tab open.
