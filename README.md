@@ -32,7 +32,17 @@ No embedded browser, no re-uploading just to browse, no telemetry.
 
 ### 2. Install and run
 
-On Debian/Ubuntu, one command installs the dependencies **and** clones from GitHub:
+With the dependencies already installed:
+
+```bash
+git clone https://github.com/sahilwasgood/gphotos.git
+cd gphotos
+./install.sh
+gphotos
+```
+
+<details>
+<summary>One command that installs the dependencies and clones from GitHub (Debian/Ubuntu)</summary>
 
 ```bash
 sudo apt update && sudo apt install -y git curl ffmpeg python3-pip && \
@@ -44,17 +54,9 @@ git clone https://github.com/sahilwasgood/gphotos.git && cd gphotos && \
 ```
 
 If pip reports `externally-managed-environment` (Ubuntu 24.04+), add
-`--break-system-packages` to the pip command. See [INSTALL.md](INSTALL.md) for a
-line-broken version.
+`--break-system-packages` to the pip command. Other platforms: [INSTALL.md](INSTALL.md).
 
-If the dependencies are already present, just clone and install:
-
-```bash
-git clone https://github.com/sahilwasgood/gphotos.git
-cd gphotos
-./install.sh
-gphotos
-```
+</details>
 
 `install.sh` builds the release binary, puts it in `~/.local/bin`, copies the
 Python helpers to `~/.local/share/gphotos-app`, and registers the desktop entry
