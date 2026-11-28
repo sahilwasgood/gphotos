@@ -1,6 +1,23 @@
 # Install
 
-## Quick install (Linux, no sudo)
+## All-in-one (Debian / Ubuntu)
+
+This installs the dependencies, clones from GitHub, builds and launches the app:
+
+```bash
+sudo apt update && sudo apt install -y git curl ffmpeg python3-pip && \
+python3 -m pip install pycryptodome secretstorage && \
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y && \
+export PATH="$HOME/.cargo/bin:$PATH" && \
+git clone https://github.com/sahilwasgood/gphotos.git && cd gphotos && \
+./install.sh && gphotos
+```
+
+Skip the `sudo apt ...` and rustup lines if those tools are already installed.
+If pip reports `externally-managed-environment` (Ubuntu 24.04+), add
+`--break-system-packages` to the pip line.
+
+## Quick install (already have the dependencies)
 
 ```bash
 git clone https://github.com/sahilwasgood/gphotos.git
