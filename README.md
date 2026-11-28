@@ -135,7 +135,7 @@ python3 -m unittest discover -s companion/tests    # cookie-helper tests
 - `companion/` — local cookie helpers and their tests.
 - `assets/` — the in-app logo (with transparent animated exports) and the icon source.
 - Detail docs: `INSTALL.md`, `LIMITATIONS.md`, `SECURITY.md`, `AGENT.md`,
-  `ENDPOINT-RESEARCH.md`, `docs/WINDOWS-SIGNIN.md`.
+  `ENDPOINT-RESEARCH.md`, `CHANGELOG.md`, `docs/WINDOWS-SIGNIN.md`.
 
 ## Security and licence
 
