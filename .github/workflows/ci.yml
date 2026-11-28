@@ -17,3 +17,5 @@ jobs:
         run: cargo build --release
       - name: Unit tests
         run: cargo test --bin gphotos
+      - name: Check installer syntax
+        run: bash -n install.sh
