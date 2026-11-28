@@ -17,10 +17,17 @@ Two distinct marks:
   20 fps (8 seconds), transparent, loops.
 - `logo.gif` — 468×504 transparency fallback for editors that cannot import APNG.
 - `render_logo.py` — ports `draw_logo()` and the sketchy drawing helpers exactly,
-  so the exports can be regenerated from the same code path:
+  so the exports can be regenerated from the same code path. Needs Pillow
+  (`python3 -m pip install pillow`) and ffmpeg to assemble the animation:
 
   ```bash
   python3 assets/render_logo.py /tmp/logo-frames 8 20
+  cp /tmp/logo-frames/logo-native.png logo.png
+  ffmpeg -y -framerate 20 -i /tmp/logo-frames/f%04d.png \
+    -c:v apng -pix_fmt rgba -plays 0 logo.apng
+  ffmpeg -y -framerate 20 -i /tmp/logo-frames/f%04d.png \
+    -vf "scale=468:-1,split[s0][s1];[s0]palettegen=reserve_transparent=1[p];[s1][p]paletteuse=alpha_threshold=128" \
+    -loop 0 logo.gif
   ```
 
 The animation contains only the motion the app itself has — no added fade,
