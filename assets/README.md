@@ -1,18 +1,21 @@
 # Brand assets
 
-- `logo.svg` — original logo with its paper-coloured square background. Used as
-  the source for the app icon.
-- `logo-transparent.svg` — same artwork with the background removed. Source for
-  the transparent overlay exports below.
-- `logo-overlay.png` — 1024×1024 still PNG, transparent background.
-- `logo-overlay.apng` — 800×800 animated PNG, transparent background, 72 frames
-  at 24 fps, loops forever. Best quality; use where APNG is supported.
-- `logo-overlay.gif` — 512×512 animated GIF with 1-bit transparency, 60 frames
-  at 20 fps, loops forever. Compatibility fallback for editors that cannot
-  import APNG.
+- `logo.svg` — original logo artwork with its paper-coloured square background.
+  Source for the app icon (`src/logo.png`, also used by the Linux desktop entry).
+- `logo-overlay.png` — the **native in-app logo** from `draw_logo()` in
+  `src/main.rs`, 936×1008, transparent background.
+- `logo-overlay.apng` — the same logo with its **native animation**: sun rays
+  rotate at 0.35 rad/s, the cloud drifts at 0.9 rad/s and bobs at 2.2 rad/s.
+  160 frames at 20 fps (8 seconds), transparent, loops.
+- `logo-overlay.gif` — 468×504 transparency fallback for editors that cannot
+  import APNG, same motion.
+- `render_logo.py` — ports `draw_logo()` and the sketchy drawing helpers
+  exactly, so the overlays can be regenerated from the same code path:
 
-The animation is a short ease-in pop followed by a gentle hand-drawn wobble and
-fade to transparent, so it can be dropped straight onto a video timeline.
+  ```bash
+  python3 assets/render_logo.py /tmp/logo-frames 8 20
+  ```
 
-Regenerate from `logo-transparent.svg` with ImageMagick and ffmpeg; no downloads
-or extra tools are required.
+The animation contains only the motion the app itself has — no added fade,
+scale or spin. The APNG/GIF loop is a cut at 8 seconds, not a perfectly seamless
+cycle: the app's ray, drift and bob frequencies share no short common period.
