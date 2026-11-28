@@ -35,7 +35,12 @@ No embedded browser, no re-uploading just to browse, no telemetry.
 On Debian/Ubuntu, one command installs the dependencies **and** clones from GitHub:
 
 ```bash
-sudo apt update && sudo apt install -y git curl ffmpeg python3-pip && python3 -m pip install pycryptodome secretstorage && curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y && export PATH="$HOME/.cargo/bin:$PATH" && git clone https://github.com/sahilwasgood/gphotos.git && cd gphotos && ./install.sh && gphotos
+sudo apt update && sudo apt install -y git curl ffmpeg python3-pip && \
+python3 -m pip install pycryptodome secretstorage && \
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y && \
+export PATH="$HOME/.cargo/bin:$PATH" && \
+git clone https://github.com/sahilwasgood/gphotos.git && cd gphotos && \
+./install.sh && gphotos
 ```
 
 If pip reports `externally-managed-environment` (Ubuntu 24.04+), add

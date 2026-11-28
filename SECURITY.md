@@ -27,8 +27,8 @@ Please open a private security advisory on this repository rather than a public 
 - impact (what an attacker could read or change),
 - suggested fix if you have one.
 
-You should receive an acknowledgement within a few days. Please do not publicly disclose until
-a fix is available.
+This is a small project, so replies may take a little time. Please do not publicly
+disclose until a fix is available.
 
 ## Known limitations (not vulnerabilities)
 

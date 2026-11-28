@@ -15,6 +15,11 @@ for tool in cargo curl ffmpeg python3; do
   }
 done
 
+if ! python3 -c 'import Cryptodome, secretstorage' >/dev/null 2>&1; then
+  echo "missing Python modules: python3 -m pip install pycryptodome secretstorage" >&2
+  exit 1
+fi
+
 echo "building gphotos..."
 cargo build --release
 
