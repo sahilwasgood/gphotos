@@ -31,8 +31,8 @@ For a user-only install, copy the same files into
 `~/.local/share/icons/hicolor/256x256/apps/`, then run
 `update-desktop-database ~/.local/share/applications`.
 
-The `.desktop` entry sets the icon, the name **gphotos**, and registers the
-`gphotos://` link scheme.
+The `.desktop` entry sets the icon (from `icons/`), the name **Google Photos**,
+and registers the `gphotos://` link scheme. The executable is `gphotos`.
 
 ## Windows and macOS
 

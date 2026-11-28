@@ -98,6 +98,16 @@ cargo test --bin gphotos              # offline unit tests
 ./target/release/gphotos --selftest   # offline + live read-only checks (needs sign-in)
 ```
 
+## Project layout
+
+- `src/main.rs` — UI, video player, CLI and selftest.
+- `src/library.rs` — session bridge, `batchexecute` RPC, caching and scans.
+- `src/agent.rs` — JSON-lines CLI for AI agents.
+- `companion/` — local cookie helpers and their tests.
+- `assets/` — the in-app logo (with transparent animated exports) and the icon source.
+- Detail docs: `INSTALL.md`, `LIMITATIONS.md`, `SECURITY.md`, `AGENT.md`,
+  `ENDPOINT-RESEARCH.md`, `docs/WINDOWS-SIGNIN.md`.
+
 ## Security and licence
 
 Credentials never enter the process argument list (curl reads config from stdin);

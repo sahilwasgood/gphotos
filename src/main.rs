@@ -11636,7 +11636,7 @@ fn full_cache_dir() -> PathBuf {
 }
 
 fn window_icon() -> Option<egui::IconData> {
-    let png = include_bytes!("logo.png");
+    let png = include_bytes!("icon.png");
     let img = image::load_from_memory(png).ok()?.to_rgba8();
     let (w, h) = (img.width(), img.height());
     Some(egui::IconData {
