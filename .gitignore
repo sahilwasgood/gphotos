@@ -12,3 +12,5 @@ local/
 /AUTONOMOUS/
 *.mp4
 /VIDEO-BRIEF.md
+__pycache__/
+*.pyc

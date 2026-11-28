@@ -1,6 +1,6 @@
 # Contributing
 
-Thanks for helping improve gphotos-app. It is a GPL-3.0 project; by contributing
+Thanks for helping improve gphotos. It is a GPL-3.0 project; by contributing
 you agree that your work is licensed the same way.
 
 ## Before you start
@@ -16,8 +16,8 @@ you agree that your work is licensed the same way.
 ```bash
 source ~/.cargo/env                 # if cargo is not on your PATH
 cargo build --release
-cargo test --bin gphotos-app        # offline unit tests
-./target/release/gphotos-app --selftest   # needs a signed-in browser session
+cargo test --bin gphotos            # offline unit tests
+./target/release/gphotos --selftest # needs a signed-in browser session
 ```
 
 Keep changes small and focused. The UI uses a hand-drawn paper/ink style;

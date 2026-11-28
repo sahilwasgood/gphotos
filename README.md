@@ -1,44 +1,72 @@
 # gphotos
 
-A native desktop client for Google Photos, written in Rust with [egui](https://github.com/emilk/egui).
-It talks to the same private web endpoints the browser app uses through a **session bridge**:
-a small cookie helper reads your own signed-in Google session, and the app speaks Google Photos'
-`batchexecute` RPC directly with it. No browser is embedded and nothing is re-uploaded just to
-browse. The UI is intentionally hand-drawn (Patrick Hand / Caveat) with a paper-and-ink palette.
+A native desktop client for Google Photos. Built in Rust with egui, it opens your
+library in a hand-drawn paper-and-ink timeline, plays videos in-app, and lets you
+manage photos without a browser tab open.
 
-> Status: actively developed. See `LIMITATIONS.md` for honest limitations and
-> `CONTRIBUTING.md` if you want to help.
+It uses a **session bridge**: small local helpers read your own signed-in Google
+session, and the app talks to the same private web RPC the Photos website uses.
+No embedded browser, no re-uploading just to browse, no telemetry.
 
-## Features
+> Work in progress. Features that are not implemented are listed in
+> [LIMITATIONS.md](LIMITATIONS.md) rather than faked.
 
-- **Timeline** with a month/date rail sized by items per month; click or drag to jump, double-click a month to filter to that year.
-- **Video playback** in-app: native ffmpeg pipe, streaming with seek, muted testing hooks, hover previews, per-file resume, proximity-hidden controls.
-- **Search** through Google plus local `file:` search over filenames/captions from the one-time library scan.
-- **Local filters**: combinable videos/photos/large toggles (e.g. videos ≥100 MB), year chips, month/type views, duplicate candidates, bursts; sortable by date, name or size.
-- **Albums**: create, delete, share links, copy link, manage access on the web, sort, paperclip badge on shared albums; dedicated shared-album and shared-link views.
-- **Storage**: quota reading, full-library measurement, biggest-items report, per-type/per-year breakdown, make-items-free workflow with optional Colab batch job.
-- **Management**: multi-select (Ctrl+A, Ctrl/Shift-click), keyboard triage (F/E/Delete), per-photo right-click actions, undo for bulk trash/archive/favourite, caption and date editing, metadata CSV export, bulk original download with real filenames. Sort preferences persist.
-- **Settings**: appearance, playback, uploads, caching, locked-folder visibility, Colab engine — all persisted.
-- **Privacy**: session cookies and at-tokens never appear in process argv (curl config over stdin); the signed video URL is the one exception passed to ffmpeg as an argument (see Honest limitations). No telemetry.
+## Install
 
-## Build and run
+### 1. Requirements
 
-Requirements: Rust (stable), `curl`, `ffmpeg`, Python 3 with `pycryptodome` and
-`secretstorage` (Linux), and a browser signed in to Google Photos on this machine.
-Video sound needs an output device that runs at 48 kHz stereo. If yours cannot,
-videos play silently and the picture keeps time. See `companion/README.md` before
-first run.
+- Rust (stable) and `curl`
+- `ffmpeg` (for video playback)
+- Python 3 — on Linux also `pycryptodome` and `secretstorage`:
+
+  ```bash
+  python3 -m pip install pycryptodome secretstorage
+  ```
+
+- A browser on this machine signed in to Google Photos (Brave, Chrome, Firefox
+  or Chromium). Video sound needs a 48 kHz stereo output device; without one,
+  videos play silently and the picture keeps time.
+
+### 2. Build and run
 
 ```bash
 git clone https://github.com/sahilwasgood/gphotos.git
 cd gphotos
 cargo build --release
+mkdir -p "${GPHOTOS_ROOT:-$HOME/.local/share/gphotos-app}"
+cp companion/gcookies.py companion/fifecookies.py "${GPHOTOS_ROOT:-$HOME/.local/share/gphotos-app}/"
 ./target/release/gphotos
 ```
 
-On first run, use the in-app sign-in flow, then confirm in the browser. The app reads the
-existing browser session (Brave/Chrome/Firefox cookie sources via the helper scripts described
-below). No credentials are ever written into the repository.
+On first run, use the in-app sign-in flow and confirm in the browser. Nothing is
+written into the repository. See [INSTALL.md](INSTALL.md) for Linux desktop
+integration (`.desktop` entry, icon and `gphotos://` link handler), and
+[docs/WINDOWS-SIGNIN.md](docs/WINDOWS-SIGNIN.md) if you are on Windows or macOS,
+where automatic cookie decryption is not available.
+
+There is no packaged installer yet — the release binary is the install.
+
+## What you can do
+
+- **Timeline** with a month rail sized by items per month; click or drag to jump, double-click a month to filter to that year.
+- **Video playback** in-app: streaming with seek, hover previews, per-file resume and mute.
+- **Search** via Google plus `file:` search over filenames and captions; combinable local filters (videos, large files, duplicates, bursts, year chips).
+- **Albums**: create, delete, share links, and browse shared albums and links.
+- **Storage**: quota, biggest-items report, per-type and per-year breakdown, "make free" workflow.
+- **Manage**: multi-select, keyboard triage (F favourite, E archive, Delete trash), undo for bulk actions, caption/date editing, CSV metadata export, original downloads.
+- **Accounts**: switch between browser profiles, add accounts, logout, locked folder.
+- **Things & places**: real Google groups such as birthdays and cities.
+- **AI agents**: a JSON-lines CLI (`gphotos --agent …`) with read commands and gated writes. See [AGENT.md](AGENT.md).
+
+## Limitations worth knowing
+
+- People & Pets face groups are not implemented — no reliable cookie-accessible endpoint exists.
+- Sharing access management opens the official web page.
+- Permanent delete uses a reverse-engineered RPC and is behind a two-step confirmation.
+- Local filters need a one-time library scan before they fill.
+- The Linux sync robot / local uploader needs systemd; on other OSes those controls are disabled, not faked.
+
+Full details in [LIMITATIONS.md](LIMITATIONS.md).
 
 ## Deep links
 
@@ -50,63 +78,31 @@ Pass a link as the first argument to open it on launch:
 ./target/release/gphotos /path/to/shared.gphotoslink
 ```
 
-A `.gphotoslink` is a plain text file whose first non-empty, non-comment line is
-a `gphotos://photo/…` / `gphotos://album/…` URL or a `https://photos.google.com/photo/…`
-/ `/album/…` share URL. Keys are percent-decoded. Add `?account=<email>` to a
-`gphotos://` URL to select the profile that created the link (it must already be
-in the account list); without it the currently selected account is used. Short
-`photos.app.goo.gl` links cannot be resolved offline and are rejected, and a
-malformed or unknown link shows an error instead of opening a blank viewer.
+A `.gphotoslink` file is plain text whose first non-empty, non-comment line is a
+`gphotos://` or `https://photos.google.com/` photo/album URL. Add `?account=<email>`
+to select the profile that created the link.
 
 ## Configuration
 
-All paths are portable and can be overridden:
-
-| Variable | Meaning | Default |
-|---|---|---|
-| `GPHOTOS_ROOT` | companion-scripts and config directory | `~/.local/share/gphotos` |
-| `GPHOTOS_GOTOHP` | uploader binary used by "make free" | `$GPHOTOS_ROOT/gotohp-cli_amd64` |
-| `GPHOTOS_MUTE` | force mute (used in automated testing) | unset |
-
-`gcookies.py` and `fifecookies.py` are bundled in `companion/` — copy them into
-`GPHOTOS_ROOT` as described in `companion/README.md`. Without them the app cannot
-find a browser session or load image/video URLs on a fresh machine.
-`google-unlimited.sh` and `gotohp-cli_amd64` come from the upstream
-[GoogleUnlimited](https://github.com/shishir0x/GoogleUnlimited) project and are
-only needed for the upload / "make free" workflows.
-
-Debug/test hooks: `GPHOTOS_SHOT`, `GPHOTOS_CTXDBG`, `GPHOTOS_SCROLLDBG`, `GPHOTOS_VDBG`,
-`GPHOTOS_HOGS`, `GPHOTOS_FORCE_STREAM`, `GPHOTOS_JUMPDATE`/`GPHOTOS_JUMPTEXT`. They are
-environment-gated and cost nothing during normal use.
+`GPHOTOS_ROOT` overrides the data directory (default `~/.local/share/gphotos-app`);
+`GPHOTOS_GOTOHP` points at the optional uploader binary used by "make free".
+Uploader and watcher scripts come from
+[GoogleUnlimited](https://github.com/shishir0x/GoogleUnlimited) and are only needed
+for those workflows. The Python helpers are documented in
+[companion/README.md](companion/README.md).
 
 ## Tests
 
 ```bash
-cargo test --bin gphotos          # 50 offline unit tests
-./target/release/gphotos --selftest   # 15 offline + 27 live read-only checks (live needs a signed-in browser session)
+cargo test --bin gphotos              # offline unit tests
+./target/release/gphotos --selftest   # offline + live read-only checks (needs sign-in)
 ```
 
-## Architecture
+## Security and licence
 
-- `src/main.rs` — UI, state, player, CLI, selftest.
-- `src/library.rs` — batchexecute RPC wrapper, response parsers, full-library scan, stats.
-- Playback: an ffmpeg rawvideo pipe feeds a single frame slot; a separate ffmpeg→cpal pipe
-  counts bytes handed to the audio device as the master clock. Seeking a non-range-capable
-  CDN waits for the local download cache, then restarts from disk.
+Credentials never enter the process argument list (curl reads config from stdin);
+the one exception is a short-lived signed video URL passed to ffmpeg. No telemetry.
+See [SECURITY.md](SECURITY.md) to report a vulnerability.
 
-## Honest limitations
-
-- **People & Pets / face groups**: no published batchexecute RPC was found; not implemented rather than faked.
-- **Sharing access management** (who can view, expiry, collaborators): the web app uses private RPCs and the mobile app uses gRPC with OAuth; the app opens the official web page for these actions.
-- **Permanent delete** uses a reverse-engineered RPC id and is behind a two-step confirmation that says so.
-- **Sync robot and local uploader are Linux-only**: automatic folder watching needs a systemd user service, `google-unlimited.sh` and the Linux uploader. On macOS/Windows the Sync robot page shows a "not available on this OS" notice, and the Storage and Uploads cards disable the make-free buttons, the "This computer" choice and the upload button rather than leaving dead controls. Browsing, account switching, video, storage and settings work on every platform (automatic sign-in excepted — see below).
-- **macOS automatic sign-in**: automatic cookie decryption needs the Linux keyring; on macOS use the cookie-export import. Once a session exists, switching accounts works normally.
-- Signed video URLs appear in the ffmpeg process argument list; ffmpeg has no stdin-config equivalent. They are short-lived and per-item.
-
-## Security
-
-See `SECURITY.md` for the credential-handling model and how to report a vulnerability.
-
-## Licence
-
-GPL-3.0. See `LICENSE`. Fonts: Patrick Hand and Caveat (included in `src/`, see `FONTS-LICENSE.md` and `OFL.txt`).
+GPL-3.0 — see [LICENSE](LICENSE). Bundled fonts are under the SIL Open Font
+License, see [FONTS-LICENSE.md](FONTS-LICENSE.md) and [OFL.txt](OFL.txt).
