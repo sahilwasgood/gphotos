@@ -101,9 +101,9 @@ Full details in [LIMITATIONS.md](LIMITATIONS.md).
 Pass a link as the first argument to open it on launch:
 
 ```bash
-./target/release/gphotos gphotos://photo/AF1QipABC123
-./target/release/gphotos gphotos://album/AAK-1234567890
-./target/release/gphotos /path/to/shared.gphotoslink
+gphotos gphotos://photo/AF1QipABC123
+gphotos gphotos://album/AAK-1234567890
+gphotos /path/to/shared.gphotoslink
 ```
 
 A `.gphotoslink` file is plain text whose first non-empty, non-comment line is a
