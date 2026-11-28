@@ -9,6 +9,7 @@ gphotos --agent help
 gphotos --agent status
 gphotos --agent list --view recent --limit 50
 # views: recent | archive | favorites | trash | locked
+# list, find, albums and links accept --page <next_page_token> for paging
 gphotos --agent find --query "goa 2024" --limit 20
 gphotos --agent info --keys AF1QipABC,AF1QipDEF
 gphotos --agent quota
