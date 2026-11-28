@@ -8,6 +8,7 @@ success, 1 on failure.
 gphotos --agent help
 gphotos --agent status
 gphotos --agent list --view recent --limit 50
+# views: recent | archive | favorites | trash | locked
 gphotos --agent find --query "goa 2024" --limit 20
 gphotos --agent info --keys AF1QipABC,AF1QipDEF
 gphotos --agent quota
@@ -22,6 +23,7 @@ Photos account and are refused unless you set `GPHOTOS_AGENT_WRITE=1` or pass
 
 ```bash
 gphotos --agent favorite --keys K1,K2 --allow-write
+gphotos --agent unfavorite --keys K1 --allow-write
 gphotos --agent trash --keys K1 --allow-write
 gphotos --agent restore --keys K1 --allow-write
 gphotos --agent archive --keys K1 --allow-write
