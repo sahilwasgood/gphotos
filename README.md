@@ -122,8 +122,9 @@ for those workflows. The Python helpers are documented in
 ## Tests
 
 ```bash
-cargo test --bin gphotos              # offline unit tests
-./target/release/gphotos --selftest   # offline + live read-only checks (needs sign-in)
+cargo test --bin gphotos                          # offline Rust unit tests
+python3 -m unittest discover -s companion/tests    # cookie-helper tests
+./target/release/gphotos --selftest               # offline + live checks (needs sign-in)
 ```
 
 ## Project layout
