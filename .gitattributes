@@ -1,0 +1,12 @@
+* text=auto
+
+# Shell scripts and CI config must keep LF endings on every platform.
+*.sh text eol=lf
+*.yml text eol=lf
+*.md text eol=lf
+
+# Binary brand assets and bundled fonts.
+*.png binary
+*.apng binary
+*.gif binary
+*.ttf binary
