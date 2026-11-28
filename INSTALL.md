@@ -16,8 +16,9 @@ directory.
 
 ## Manual / system-wide install
 
-Requires Rust (stable), `curl`, `ffmpeg`, Python 3, and a browser signed in to
-Google Photos.
+Requires Git (to clone from GitHub), Rust (stable), `curl`, `ffmpeg`, Python 3,
+and a browser signed in to Google Photos. Without Git, download the source ZIP
+from `https://github.com/sahilwasgood/gphotos` and unzip it instead.
 
 ```bash
 git clone https://github.com/sahilwasgood/gphotos.git

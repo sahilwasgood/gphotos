@@ -17,7 +17,8 @@ No embedded browser, no re-uploading just to browse, no telemetry.
 
 ### 1. Requirements
 
-- Rust (stable) and `curl`
+- Git (to clone this GitHub repo) and `curl`
+- Rust (stable)
 - `ffmpeg` (for video playback)
 - Python 3 — on Linux also `pycryptodome` and `secretstorage`:
 
@@ -43,6 +44,11 @@ Python helpers to `~/.local/share/gphotos-app`, and registers the desktop entry
 and icon. No `sudo`. If `~/.local/bin` is not on your `PATH`, the script says so.
 On first run, use the in-app sign-in flow and confirm in the browser — nothing is
 written into the repository.
+
+No Git installed? Download the source ZIP from
+`https://github.com/sahilwasgood/gphotos` instead, unzip it, and run `./install.sh`
+from the extracted folder. You need an internet connection either way to get the
+source from GitHub.
 
 Need a custom location or a system-wide install? See [INSTALL.md](INSTALL.md).
 On Windows or macOS, where automatic cookie decryption is unavailable, see
@@ -119,3 +125,5 @@ See [SECURITY.md](SECURITY.md) to report a vulnerability.
 
 GPL-3.0 — see [LICENSE](LICENSE). Bundled fonts are under the SIL Open Font
 License, see [FONTS-LICENSE.md](FONTS-LICENSE.md) and [OFL.txt](OFL.txt).
+
+Issues and pull requests are welcome on GitHub; see [CONTRIBUTING.md](CONTRIBUTING.md).
