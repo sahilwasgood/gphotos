@@ -1,6 +1,20 @@
 # Install
 
-## Build from source
+## Quick install (Linux, no sudo)
+
+```bash
+git clone https://github.com/sahilwasgood/gphotos.git
+cd gphotos
+./install.sh
+gphotos
+```
+
+This builds the release binary and installs it to `~/.local/bin`, the helpers to
+`~/.local/share/gphotos-app`, and the desktop entry and icon into the matching
+XDG user directories. Set `GPHOTOS_ROOT` before running it to change the data
+directory.
+
+## Manual / system-wide install
 
 Requires Rust (stable), `curl`, `ffmpeg`, Python 3, and a browser signed in to
 Google Photos.

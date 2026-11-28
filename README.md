@@ -29,24 +29,25 @@ No embedded browser, no re-uploading just to browse, no telemetry.
   or Chromium). Video sound needs a 48 kHz stereo output device; without one,
   videos play silently and the picture keeps time.
 
-### 2. Build and run
+### 2. Install and run
 
 ```bash
 git clone https://github.com/sahilwasgood/gphotos.git
 cd gphotos
-cargo build --release
-mkdir -p "${GPHOTOS_ROOT:-$HOME/.local/share/gphotos-app}"
-cp companion/gcookies.py companion/fifecookies.py "${GPHOTOS_ROOT:-$HOME/.local/share/gphotos-app}/"
-./target/release/gphotos
+./install.sh
+gphotos
 ```
 
-On first run, use the in-app sign-in flow and confirm in the browser. Nothing is
-written into the repository. See [INSTALL.md](INSTALL.md) for Linux desktop
-integration (`.desktop` entry, icon and `gphotos://` link handler), and
-[docs/WINDOWS-SIGNIN.md](docs/WINDOWS-SIGNIN.md) if you are on Windows or macOS,
-where automatic cookie decryption is not available.
+`install.sh` builds the release binary, puts it in `~/.local/bin`, copies the
+Python helpers to `~/.local/share/gphotos-app`, and registers the desktop entry
+and icon. No `sudo`. If `~/.local/bin` is not on your `PATH`, the script says so.
+On first run, use the in-app sign-in flow and confirm in the browser — nothing is
+written into the repository.
 
-There is no packaged installer yet — the release binary is the install.
+Need a custom location or a system-wide install? See [INSTALL.md](INSTALL.md).
+On Windows or macOS, where automatic cookie decryption is unavailable, see
+[docs/WINDOWS-SIGNIN.md](docs/WINDOWS-SIGNIN.md). There is no prebuilt package
+yet; building from source is currently the only path.
 
 ## What you can do
 
